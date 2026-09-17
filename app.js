@@ -343,7 +343,7 @@ function bindEvents() {
   document.querySelectorAll('[data-resolution]').forEach(el => el.addEventListener('click', () => { toast(`最终裁决已记录：${el.dataset.resolution}`); }));
   document.querySelectorAll('[data-cell]').forEach(el => el.addEventListener('click', () => { state.aiOpen = true; app(); setTimeout(()=>toast(`已定位 ${el.dataset.cell} 的原文证据，第 ${el.dataset.source} 页`),50); }));
   document.querySelectorAll('[data-action]').forEach(el => el.addEventListener('click', event => handleAction(el.dataset.action, event)));
-  document.addEventListener('keydown', keyboardHandler, { once: true });
+  document.onkeydown = keyboardHandler;
 }
 
 function keyboardHandler(e) {
