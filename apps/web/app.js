@@ -626,6 +626,7 @@ function renderAuth() {
 }
 
 function renderProjectPicker() {
+  const canReturn = Boolean(state.projectId && state.projects.some((p) => p.id === state.projectId));
   return `<div class="auth-shell"><div class="auth-card wide"><div class="brand-mark">证</div><h1>选择项目</h1><p class="muted">你好，${escapeHtml(state.user?.name || '')}</p>
     <div class="project-list">${state.projects.map((p) => `<button class="project-row" data-action="open-project" data-id="${p.id}"><strong>${escapeHtml(p.name)}</strong><small>${escapeHtml(p.team?.name || '')} · ${p._count?.citations || 0} 篇文献</small>${p.description ? `<small class="project-desc">${escapeHtml(p.description)}</small>` : ''}</button>`).join('') || '<div class="empty-state"><p>还没有项目</p></div>'}</div>
     <form class="form-grid" id="create-project-form" style="margin-top:18px">
@@ -633,7 +634,7 @@ function renderProjectPicker() {
       <div class="field full"><label for="new-project-description">项目说明</label><textarea id="new-project-description" name="description" rows="2" placeholder="可选"></textarea></div>
       <div class="field full"><button class="primary-button" type="submit">创建项目</button></div>
     </form>
-    <div class="compose-actions" style="margin-top:12px"><button class="ghost-button" data-action="logout">退出登录</button></div>
+    ${canReturn ? '<div class="compose-actions" style="margin-top:12px"><button class="ghost-button" data-action="return-project">返回项目</button></div>' : ''}
   </div></div>`;
 }
 
@@ -696,7 +697,12 @@ function app() {
     document.title = '选择项目 · 求证';
     document.getElementById('create-project-form')?.addEventListener('submit', handleCreateProject);
     document.querySelectorAll('[data-action="open-project"]').forEach((el) => el.addEventListener('click', () => openProject(el.dataset.id)));
-    document.querySelector('[data-action="logout"]')?.addEventListener('click', handleLogout);
+    document.querySelector('[data-action="return-project"]')?.addEventListener('click', () => {
+      if (state.projectId && state.projects.some((p) => p.id === state.projectId)) {
+        state.boot = 'workspace';
+        app();
+      }
+    });
     return;
   }
   const scrollPositions = captureScrollPositions();
@@ -1862,7 +1868,7 @@ async function saveModal() {
       } else {
         state.projectId = '';
         persistState();
-        state.boot = 'projects';
+        state.boot = 'picker';
         app();
         toast('项目已删除');
       }
