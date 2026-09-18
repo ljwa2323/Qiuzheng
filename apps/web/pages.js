@@ -422,39 +422,85 @@ export function createPages(ctx) {
     const detail = state.metaDetail;
     const activeId = state.metaAnalysisId || analyses[0]?.id || '';
     const latestRun = detail?.runs?.[0];
-    const summary = latestRun?.resultJson?.summary;
+    const result = latestRun?.resultJson || {};
+    const summary = result.summary;
     const rows = detail?.rows || [];
+    const busy = state.metaBusy;
+    const disabled = !activeId || busy ? 'disabled' : '';
+    const recipeBtn = (recipe, label) =>
+      `<button type="button" class="ghost-button meta-recipe-btn" data-action="run-meta-recipe" data-recipe="${recipe}" ${disabled}>${escapeHtml(label)}</button>`;
     const list = analyses.map((a) => `<div class="meta-analysis-item ${a.id === activeId ? 'active' : ''}"><button type="button" class="meta-analysis-select" data-action="select-meta-analysis" data-id="${a.id}"><strong>${escapeHtml(a.name)}</strong><small>${escapeHtml(a.measure)} · ${a._count?.rows || 0} 行</small></button><button type="button" class="icon-button danger" data-action="delete-meta-analysis" data-id="${a.id}" title="删除分析" aria-label="删除分析">${icon('x')}</button></div>`).join('')
       || '<p class="muted">还没有结局分析。点击「新建分析」开始。</p>';
     const table = rows.length
-      ? `<div class="table-wrap"><table class="sheet"><thead><tr><th>Study</th><th>试验组事件</th><th>试验组 n</th><th>对照组事件</th><th>对照组 n</th><th>样本量 N</th><th>来源</th></tr></thead><tbody>${rows.map((r) => {
+      ? `<div class="table-wrap"><table class="sheet"><thead><tr><th>Study</th><th>试验组</th><th>对照组</th><th>亚组</th><th>试验组事件</th><th>试验组 n</th><th>对照组事件</th><th>对照组 n</th><th>N</th><th>来源</th></tr></thead><tbody>${rows.map((r) => {
         const nT = r.nT != null ? Number(r.nT) : null;
         const nC = r.nC != null ? Number(r.nC) : null;
         const nTotal = nT != null && nC != null ? nT + nC : (nT ?? nC);
-        return `<tr><td class="study-col"><strong>${escapeHtml(r.label || r.citation?.title || r.citationId)}</strong></td><td>${r.eventsT ?? '—'}</td><td>${nT ?? '—'}</td><td>${r.eventsC ?? '—'}</td><td>${nC ?? '—'}</td><td><strong>${nTotal ?? '—'}</strong></td><td><small>${escapeHtml(r.source || '')}</small></td></tr>`;
-      }).join('')}</tbody></table></div><p class="muted" style="margin-top:8px;font-size:11px">样本量 N = 试验组 n + 对照组 n；OR/RR 计算依赖两组样本量，不是提取里的单一「样本量」字段。</p>`
-      : '<div class="empty-state"><p>暂无效应行。可从提取字段映射（需 events_t / n_t / events_c / n_c），或用「演示行」。单一 sample_size 不够做两组比较。</p></div>';
-    const forest = latestRun?.forestSvg
+        return `<tr><td class="study-col"><strong>${escapeHtml(r.label || r.citation?.title || r.citationId)}</strong></td><td>${escapeHtml(r.armT || 'Treatment')}</td><td>${escapeHtml(r.armC || 'Control')}</td><td>${escapeHtml(r.subgroup || '—')}</td><td>${r.eventsT ?? '—'}</td><td>${nT ?? '—'}</td><td>${r.eventsC ?? '—'}</td><td>${nC ?? '—'}</td><td><strong>${nTotal ?? '—'}</strong></td><td><small>${escapeHtml(r.source || '')}</small></td></tr>`;
+      }).join('')}</tbody></table></div><p class="muted" style="margin-top:8px;font-size:11px">网状 Meta 需要至少 3 个不同干预臂（armT/armC）；亚组分析需填写 subgroup。</p>`
+      : '<div class="empty-state"><p>暂无效应行。可从提取字段映射（events_t / n_t / events_c / n_c，可选 subgroup / arm_t / arm_c），或用「演示行」。</p></div>';
+
+    const plot = latestRun?.forestSvg
       ? `<div class="forest-wrap">${latestRun.forestSvg}</div>`
-      : '<p class="muted">运行配方后显示 forest plot（含各研究 N）。</p>';
+      : '<p class="muted">运行下方统计动作后显示图形结果。</p>';
+
+    const fmt = (v, d = 3) => (v == null || Number.isNaN(Number(v)) ? '—' : Number(v).toFixed(d));
     const stats = summary
       ? `<div class="stats-grid meta-stats">${[
-        ['Pooled', Number(summary.yiDisplay).toFixed(3)],
-        ['95% CI', `${Number(summary.ciLowDisplay).toFixed(3)} – ${Number(summary.ciHighDisplay).toFixed(3)}`],
-        ['I²', `${Number(summary.i2).toFixed(1)}%`],
+        ['Recipe', escapeHtml(latestRun?.recipe || '—')],
+        ['Pooled', summary.yiDisplay == null ? '—' : fmt(summary.yiDisplay)],
+        ['95% CI', summary.ciLowDisplay == null ? '—' : `${fmt(summary.ciLowDisplay)} – ${fmt(summary.ciHighDisplay)}`],
+        ['I²', `${fmt(summary.i2, 1)}%`],
+        ['Q / p', `${fmt(summary.q, 2)}${summary.pQ != null ? ` / ${fmt(summary.pQ, 3)}` : ''}`],
+        ['τ²', fmt(summary.tau2, 4)],
         ['总样本量 N', summary.totalN != null ? String(summary.totalN) : '—'],
-        ['研究数 k', String(summary.k)],
-      ].map(([k, v]) => `<div class="stat-card"><div class="stat-top">${k}</div><div class="stat-value" style="font-size:22px">${v}</div></div>`).join('')}</div>`
+        ['研究数 k', String(summary.k ?? '—')],
+      ].map(([k, v]) => `<div class="stat-card"><div class="stat-top">${k}</div><div class="stat-value" style="font-size:18px">${v}</div></div>`).join('')}</div>`
       : '';
+
+    let extra = '';
+    if (result.egger) {
+      extra += `<div class="meta-result-block"><h4>Egger 检验</h4><p>intercept=${fmt(result.egger.intercept, 4)} (SE ${fmt(result.egger.seIntercept, 4)}) · t=${fmt(result.egger.t, 3)} · p=${result.egger.pValue == null ? '—' : fmt(result.egger.pValue, 4)}</p><p class="muted">${escapeHtml(result.egger.interpretation || '')}</p></div>`;
+    }
+    if (result.predictionInterval) {
+      const pi = result.predictionInterval;
+      extra += `<div class="meta-result-block"><h4>预测区间（随机效应）</h4><p>${fmt(pi.piLowDisplay)} – ${fmt(pi.piHighDisplay)} <span class="muted">(df=${pi.df})</span></p></div>`;
+    }
+    if (result.trimFill) {
+      extra += `<div class="meta-result-block"><h4>Trim-and-fill</h4><p>估计填补 ${result.trimFill.filledCount} 项 · 调整后 pooled=${fmt(result.trimFill.adjusted?.yiDisplay)}（观察 ${fmt(result.trimFill.observed?.yiDisplay)}）</p></div>`;
+    }
+    if (Array.isArray(result.leaveOneOut) && result.leaveOneOut.length) {
+      extra += `<div class="meta-result-block"><h4>逐一剔除</h4><div class="table-wrap"><table class="sheet"><thead><tr><th>剔除研究</th><th>k</th><th>Pooled</th><th>95% CI</th><th>I²</th></tr></thead><tbody>${result.leaveOneOut.map((row) => `<tr><td>${escapeHtml(row.omittedLabel)}</td><td>${row.pooled?.k ?? '—'}</td><td>${fmt(row.pooled?.yiDisplay)}</td><td>${fmt(row.pooled?.ciLowDisplay)} – ${fmt(row.pooled?.ciHighDisplay)}</td><td>${fmt(row.pooled?.i2, 1)}%</td></tr>`).join('')}</tbody></table></div></div>`;
+    }
+    if (Array.isArray(result.subgroups) && result.subgroups.length) {
+      extra += `<div class="meta-result-block"><h4>亚组分析</h4><div class="table-wrap"><table class="sheet"><thead><tr><th>亚组</th><th>k</th><th>Pooled</th><th>95% CI</th><th>I²</th></tr></thead><tbody>${result.subgroups.map((g) => `<tr><td>${escapeHtml(g.name)}</td><td>${g.k}</td><td>${fmt(g.pooled?.yiDisplay)}</td><td>${fmt(g.pooled?.ciLowDisplay)} – ${fmt(g.pooled?.ciHighDisplay)}</td><td>${fmt(g.pooled?.i2, 1)}%</td></tr>`).join('')}</tbody></table></div></div>`;
+    }
+    if (Array.isArray(result.cumulative) && result.cumulative.length) {
+      extra += `<div class="meta-result-block"><h4>累积 Meta</h4><div class="table-wrap"><table class="sheet"><thead><tr><th>加入</th><th>k</th><th>Pooled</th><th>95% CI</th><th>I²</th></tr></thead><tbody>${result.cumulative.map((c) => `<tr><td>${escapeHtml(c.addedLabel)}</td><td>${c.k}</td><td>${fmt(c.pooled?.yiDisplay)}</td><td>${fmt(c.pooled?.ciLowDisplay)} – ${fmt(c.pooled?.ciHighDisplay)}</td><td>${fmt(c.pooled?.i2, 1)}%</td></tr>`).join('')}</tbody></table></div></div>`;
+    }
+    if (result.network) {
+      const nma = result.network;
+      const league = Array.isArray(nma.league) ? nma.league.slice(0, 24) : [];
+      extra += `<div class="meta-result-block"><h4>网状 Meta（netmeta）</h4><p>臂数 ${nma.nArms ?? '—'} · 对照 ${escapeHtml(nma.reference || '')} · Q=${fmt(nma.consistency?.Q, 2)} p=${nma.consistency?.pvalue == null ? '—' : fmt(nma.consistency.pvalue, 3)}</p>${league.length ? `<div class="table-wrap"><table class="sheet"><thead><tr><th>对比</th><th>TE</th><th>95% CI</th></tr></thead><tbody>${league.map((L) => `<tr><td>${escapeHtml(L.treat1)} vs ${escapeHtml(L.treat2)}</td><td>${fmt(L.te)}</td><td>${fmt(L.lower)} – ${fmt(L.upper)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">无 league 表输出</p>'}</div>`;
+    }
+
+    const actions = `<div class="meta-actions">
+      <div class="meta-action-group"><span class="meta-action-label">管理</span><button class="ghost-button" data-action="create-meta-analysis">${icon('plus')} 新建</button><button class="ghost-button danger-text" data-action="delete-meta-analysis" data-id="${activeId}" ${disabled}>${icon('x')} 删除</button><button class="ghost-button" data-action="meta-seed-demo-rows" ${disabled}>演示行</button><button class="ghost-button" data-action="meta-map-extraction" ${disabled}>${icon('table')} 从提取映射</button><button class="ghost-button" data-action="assistant-meta-validate" ${disabled}>可计算性</button></div>
+      <div class="meta-action-group"><span class="meta-action-label">成对合并</span>${recipeBtn('fixed_random', '固定/随机效应')}${recipeBtn('prediction_interval', '预测区间')}</div>
+      <div class="meta-action-group"><span class="meta-action-label">偏倚诊断</span>${recipeBtn('funnel', '漏斗图')}${recipeBtn('egger', 'Egger')}${recipeBtn('trim_fill', 'Trim-and-fill')}</div>
+      <div class="meta-action-group"><span class="meta-action-label">探索性</span>${recipeBtn('leave_one_out', '逐一剔除')}${recipeBtn('subgroup', '亚组分析')}${recipeBtn('cumulative', '累积 Meta')}</div>
+      <div class="meta-action-group"><span class="meta-action-label">网状</span>${recipeBtn('network', '网状 Meta (R)')}</div>
+    </div>`;
+
     const computability = state.metaComputability;
     const computabilityBanner = computability
       ? `<div class="meta-computability ${computability.canRun ? 'ok' : 'bad'}"><strong>可计算性</strong>：${computability.computable}/${computability.total} 行可算${computability.notComputable ? ` · ${computability.notComputable} 行需转换或补全` : ''}${computability.canRun ? '' : ' · 运行已拦截'}。右侧助手可调用 rate_to_events / or_ci_to_yi_sei 等工具。</div>`
       : '';
-    return `${header('Meta-analysis', 'Meta 分析', '独立统计模块：白名单配方在沙箱作业目录中确定性计算；结果供证据综合 query 召回。', `<button class="ghost-button" data-action="create-meta-analysis">${icon('plus')} 新建分析</button><button class="ghost-button danger-text" data-action="delete-meta-analysis" data-id="${activeId}" ${activeId && !state.metaBusy ? '' : 'disabled'}>${icon('x')} 删除分析</button><button class="ghost-button" data-action="meta-seed-demo-rows" ${activeId && !state.metaBusy ? '' : 'disabled'}>演示行</button><button class="ghost-button" data-action="meta-map-extraction" ${activeId && !state.metaBusy ? '' : 'disabled'}>${icon('table')} 从提取映射</button><button class="ghost-button" data-action="assistant-meta-validate" ${activeId && !state.metaBusy ? '' : 'disabled'}>可计算性</button><button class="primary-button" data-action="run-meta-analysis" ${activeId && !state.metaBusy ? '' : 'disabled'}>${icon('spark')} 运行固定/随机效应</button>`)}
+    return `${header('Meta-analysis', 'Meta 分析', '白名单统计配方：成对分析用 TypeScript 确定性计算；网状 Meta 调用本机 R/netmeta。', actions)}
   ${computabilityBanner}
   <div class="meta-layout"><aside class="panel meta-side"><div class="panel-head"><h3>结局分析</h3></div><div class="panel-body meta-analysis-list">${list}</div></aside>
   <div class="meta-main">${activeId ? `<section class="panel"><div class="panel-head"><div><h3>${escapeHtml(detail?.name || '效应表')}</h3><p>${escapeHtml(detail?.measure || '')} · 偏好模型 ${escapeHtml(detail?.modelPref || '')}</p></div></div><div class="panel-body">${table}</div></section>
-  <section class="panel"><div class="panel-head"><div><h3>最新运行</h3><p>${latestRun ? new Date(latestRun.createdAt).toLocaleString('zh-CN') : '尚未运行'}</p></div></div><div class="panel-body">${stats}${forest}</div></section>` : '<div class="empty-state"><h3>选择或新建一个分析</h3></div>'}</div></div>`;
+  <section class="panel"><div class="panel-head"><div><h3>最新运行</h3><p>${latestRun ? `${escapeHtml(latestRun.recipe || '')} · ${new Date(latestRun.createdAt).toLocaleString('zh-CN')}` : '尚未运行'}${latestRun?.status === 'failed' ? ' · 失败' : ''}</p></div></div><div class="panel-body">${latestRun?.errorMessage ? `<div class="meta-computability bad">${escapeHtml(latestRun.errorMessage)}</div>` : ''}${stats}${extra}${plot}</div></section>` : '<div class="empty-state"><h3>选择或新建一个分析</h3></div>'}</div></div>`;
   }
 
   function audit() {

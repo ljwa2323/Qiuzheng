@@ -21,6 +21,7 @@ docker-compose.yml 一键启动全部依赖与服务
 - PostgreSQL 15 或更高版本（需要命令行工具）
 - Memurai 或 Redis，监听 `127.0.0.1:6379`
 - 根目录已有配置完成的 `.env`
+- （可选）本机已安装 R，且 `Rscript` 在 PATH 中；网状 Meta 需要 `install.packages(c("jsonlite","netmeta"))`
 
 一键构建、迁移、写入演示数据并启动：
 

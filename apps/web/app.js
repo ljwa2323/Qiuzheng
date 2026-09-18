@@ -2770,6 +2770,13 @@ async function handleAction(action, event) {
       toast('需要至少 2 篇全文纳入研究才能写入演示效应行');
       return;
     }
+    const armPairs = [
+      ['DrugA', 'Placebo'],
+      ['DrugB', 'Placebo'],
+      ['DrugA', 'DrugB'],
+      ['DrugA', 'Placebo'],
+    ];
+    const subgroups = ['adult', 'adult', 'elderly', 'elderly'];
     const demo = studies.map((c, i) => ({
       citationId: c.id,
       label: c.title,
@@ -2777,13 +2784,16 @@ async function handleAction(action, event) {
       nT: 80 + i * 20,
       eventsC: 15 + i * 2,
       nC: 80 + i * 18,
+      subgroup: subgroups[i] || 'adult',
+      armT: armPairs[i]?.[0] || 'Treatment',
+      armC: armPairs[i]?.[1] || 'Control',
       source: 'demo_seed',
     }));
     try {
       await MetaApi.saveRows(state.projectId, state.metaAnalysisId, demo);
       await refreshMetaData(state.metaAnalysisId);
       app();
-      toast(`已写入 ${demo.length} 条演示效应行`);
+      toast(`已写入 ${demo.length} 条演示效应行（含亚组与多臂标签）`);
     } catch (err) {
       toast(err.message || '写入失败');
     }
@@ -2806,22 +2816,23 @@ async function handleAction(action, event) {
     }
     return;
   }
-  if (action === 'run-meta-analysis') {
+  if (action === 'run-meta-analysis' || action === 'run-meta-recipe') {
     if (!state.metaAnalysisId) return;
+    const recipe = event.currentTarget.dataset.recipe || 'fixed_random';
     state.metaBusy = true;
     app();
     try {
       const res = await MetaApi.run(state.projectId, state.metaAnalysisId, {
         model: state.metaDetail?.modelPref || 'random',
-        recipe: 'fixed_random',
+        recipe,
       });
       state.metaComputability = res.computability || null;
       await refreshMetaData(state.metaAnalysisId);
       const s = res.run?.resultJson?.summary;
       const skipped = res.computability?.notComputable || 0;
       toast(s
-        ? `完成：pooled=${Number(s.yiDisplay).toFixed(3)} I2=${Number(s.i2).toFixed(1)}%${skipped ? `（跳过 ${skipped} 行）` : ''}`
-        : 'Meta 运行完成');
+        ? `${recipe} 完成${s.yiDisplay != null ? `：pooled=${Number(s.yiDisplay).toFixed(3)}` : ''} I2=${Number(s.i2 || 0).toFixed(1)}%${skipped ? `（跳过 ${skipped} 行）` : ''}`
+        : `${recipe} 运行完成`);
       app();
     } catch (err) {
       if (err.code === 'not_computable' && err.data?.computability) {

@@ -194,7 +194,7 @@ button:disabled { cursor:not-allowed; opacity:.48; transform:none !important; }
 .eyebrow { color:var(--brand); font-size:11px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; margin-bottom:7px; }
 .page-header h2 { margin:0; font-size:27px; letter-spacing:-.025em; }
 .page-header p { margin:7px 0 0; color:var(--ink-2); font-size:13px; max-width:670px; line-height:1.6; }
-.page-actions { display:flex; gap:8px; align-items:center; }
+.page-actions { display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap; justify-content:flex-end; max-width:min(960px, 100%); }
 
 .stats-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:13px; margin-bottom:20px; }
 .stat-card { background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:17px; box-shadow:var(--shadow-sm); min-width:0; }
@@ -1190,6 +1190,24 @@ table tr.is-selected { background: rgba(45, 106, 98, 0.06); }
 .meta-analysis-item.active { border-color:#b7d6cf; background:var(--brand-soft); }
 .meta-analysis-item .icon-button { flex-shrink:0; margin-top:2px; }
 .meta-main { display:grid; gap:14px; }
+.meta-actions {
+  display:flex; flex-wrap:wrap; gap:10px 14px; align-items:flex-start;
+  justify-content:flex-end; max-width:min(920px, 100%);
+}
+.meta-action-group {
+  display:flex; flex-wrap:wrap; gap:6px; align-items:center;
+  padding:6px 8px; border:1px solid var(--line); border-radius:12px; background:#fbfcfb;
+}
+.meta-action-label {
+  font-size:10px; font-weight:700; color:var(--ink-3); text-transform:uppercase; letter-spacing:0.04em;
+  margin-right:2px;
+}
+.meta-recipe-btn { font-size:11px; }
+.meta-result-block {
+  margin:0 0 14px; padding:12px 14px; border:1px solid var(--line); border-radius:12px; background:#fbfcfb;
+}
+.meta-result-block h4 { margin:0 0 8px; font-size:13px; }
+.meta-result-block p { margin:0 0 6px; font-size:12px; line-height:1.5; }
 .forest-wrap { overflow:auto; border:1px solid var(--line); border-radius:12px; background:#fff; padding:8px; }
 .forest-wrap svg { display:block; max-width:100%; height:auto; }
 .meta-stats { margin-bottom:12px; }
@@ -1199,4 +1217,5 @@ table tr.is-selected { background: rgba(45, 106, 98, 0.06); }
 @media (max-width: 960px) {
   .meta-layout { grid-template-columns:1fr; }
   .meta-side { position:static; }
+  .meta-actions { justify-content:flex-start; }
 }

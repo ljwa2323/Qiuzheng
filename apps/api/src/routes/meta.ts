@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { AppError, sendError } from '../lib/errors.js';
 import { assertCanWrite, requireProjectMember, writeAudit } from '../services/rbac.js';
 import { runMetaInSandbox } from '../services/meta-sandbox.js';
-import type { MetaMeasure, MetaModel } from '../services/meta-stats.js';
+import { META_RECIPES, type MetaMeasure, type MetaModel } from '../services/meta-stats.js';
 import {
   META_TOOL_KINDS,
   assessComputability,
@@ -15,6 +15,7 @@ import {
 
 const measureEnum = z.enum(['OR', 'RR', 'MD', 'SMD']);
 const modelEnum = z.enum(['fixed', 'random']);
+const recipeEnum = z.enum(META_RECIPES);
 
 const effectRowSchema = z.object({
   citationId: z.string().min(1),
@@ -32,6 +33,8 @@ const effectRowSchema = z.object({
   ciLow: z.number().nullable().optional(),
   ciHigh: z.number().nullable().optional(),
   subgroup: z.string().optional(),
+  armT: z.string().optional(),
+  armC: z.string().optional(),
   source: z.string().optional(),
 });
 
@@ -178,6 +181,8 @@ export async function metaRoutes(app: FastifyInstance) {
               ciLow: row.ciLow ?? null,
               ciHigh: row.ciHigh ?? null,
               subgroup: row.subgroup || '',
+              armT: row.armT?.trim() || 'Treatment',
+              armC: row.armC?.trim() || 'Control',
               source: row.source || 'manual',
             })),
           });
@@ -244,6 +249,8 @@ export async function metaRoutes(app: FastifyInstance) {
         meanC: 'mean_c',
         sdC: 'sd_c',
         subgroup: 'subgroup',
+        armT: 'arm_t',
+        armC: 'arm_c',
       };
       const mapping = { ...defaultMap, ...body.mapping };
 
@@ -269,6 +276,8 @@ export async function metaRoutes(app: FastifyInstance) {
             meanC: num(vals.get(mapping.meanC || '')),
             sdC: num(vals.get(mapping.sdC || '')),
             subgroup: vals.get(mapping.subgroup || '') || '',
+            armT: vals.get(mapping.armT || '') || 'Treatment',
+            armC: vals.get(mapping.armC || '') || 'Control',
             source: 'mapped_from_extraction',
           };
           const hasBinary = row.eventsT != null && row.nT != null && row.eventsC != null && row.nC != null;
@@ -297,6 +306,8 @@ export async function metaRoutes(app: FastifyInstance) {
                 meanC: row.meanC ?? null,
                 sdC: row.sdC ?? null,
                 subgroup: row.subgroup || '',
+                armT: row.armT?.trim() || 'Treatment',
+                armC: row.armC?.trim() || 'Control',
                 source: 'mapped_from_extraction',
               })),
             });
@@ -371,7 +382,7 @@ export async function metaRoutes(app: FastifyInstance) {
       const body = z
         .object({
           model: modelEnum.optional(),
-          recipe: z.literal('fixed_random').default('fixed_random'),
+          recipe: recipeEnum.default('fixed_random'),
           skipComputabilityGate: z.boolean().optional(),
         })
         .parse(request.body ?? {});
@@ -427,6 +438,8 @@ export async function metaRoutes(app: FastifyInstance) {
             yi: r.yi,
             sei: r.sei,
             subgroup: r.subgroup,
+            armT: r.armT,
+            armC: r.armC,
           })),
         });
 
@@ -457,7 +470,7 @@ export async function metaRoutes(app: FastifyInstance) {
           userId: request.user!.id,
           actorName: request.user!.name,
           action: 'Ran meta-analysis recipe',
-          detail: `${analysis.name} · ${model} · k=${(sandboxed.result.summary as { k?: number }).k ?? '?'} · skipped=${computability.notComputable}`,
+          detail: `${analysis.name} · ${body.recipe} · ${model} · k=${(sandboxed.result.summary as { k?: number }).k ?? '?'} · skipped=${computability.notComputable}`,
           module: 'Meta',
         });
         return { run, computability };

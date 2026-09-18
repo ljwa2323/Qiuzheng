@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "EffectRow" ADD COLUMN "armT" TEXT NOT NULL DEFAULT 'Treatment';
+ALTER TABLE "EffectRow" ADD COLUMN "armC" TEXT NOT NULL DEFAULT 'Control';

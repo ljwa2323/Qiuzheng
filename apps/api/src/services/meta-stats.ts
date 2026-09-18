@@ -3,6 +3,20 @@
 export type MetaMeasure = 'OR' | 'RR' | 'MD' | 'SMD';
 export type MetaModel = 'fixed' | 'random';
 
+export const META_RECIPES = [
+  'fixed_random',
+  'funnel',
+  'egger',
+  'leave_one_out',
+  'subgroup',
+  'cumulative',
+  'prediction_interval',
+  'trim_fill',
+  'network',
+] as const;
+
+export type MetaRecipe = (typeof META_RECIPES)[number];
+
 export type EffectInput = {
   id: string;
   label: string;
@@ -17,6 +31,8 @@ export type EffectInput = {
   yi?: number | null;
   sei?: number | null;
   subgroup?: string | null;
+  armT?: string | null;
+  armC?: string | null;
 };
 
 export type StudyEffect = {
@@ -246,14 +262,422 @@ function pool(studies: StudyEffect[], measure: MetaMeasure, model: MetaModel): M
   };
 }
 
-export function runFixedRandom(rows: EffectInput[], measure: MetaMeasure) {
+export function requireStudies(rows: EffectInput[], measure: MetaMeasure, min = 1): StudyEffect[] {
   const studies = rows.map((row) => studyFromRow(row, measure)).filter(Boolean) as StudyEffect[];
-  if (studies.length < 1) {
-    throw new Error('Need at least one valid effect row for the selected measure');
+  if (studies.length < min) {
+    throw new Error(`Need at least ${min} valid effect row(s) for the selected measure`);
   }
+  return studies;
+}
+
+export function runFixedRandom(rows: EffectInput[], measure: MetaMeasure) {
+  const studies = requireStudies(rows, measure, 1);
   const fixed = pool(studies, measure, 'fixed');
   const random = pool(studies, measure, 'random');
   return { studies, fixed, random };
+}
+
+function tPpf(p: number, df: number): number {
+  if (!(df > 0) || !Number.isFinite(p)) return normPpf(p);
+  if (df >= 40) return normPpf(p);
+  const z = normPpf(p);
+  // First-order Cornish-Fisher-style correction for Student-t
+  return z + (z * z * z + z) / (4 * df);
+}
+
+function ordinaryLeastSquares(xs: number[], ys: number[]) {
+  const n = xs.length;
+  const meanX = xs.reduce((s, v) => s + v, 0) / n;
+  const meanY = ys.reduce((s, v) => s + v, 0) / n;
+  let sxx = 0;
+  let sxy = 0;
+  let syy = 0;
+  for (let i = 0; i < n; i += 1) {
+    const dx = xs[i] - meanX;
+    const dy = ys[i] - meanY;
+    sxx += dx * dx;
+    sxy += dx * dy;
+    syy += dy * dy;
+  }
+  if (sxx <= 0) throw new Error('Egger regression needs variation in precision (1/SE)');
+  const slope = sxy / sxx;
+  const intercept = meanY - slope * meanX;
+  const residualSs = syy - slope * sxy;
+  const mse = n > 2 ? residualSs / (n - 2) : 0;
+  const seIntercept = Math.sqrt(mse * (1 / n + (meanX * meanX) / sxx));
+  const seSlope = Math.sqrt(mse / sxx);
+  return { intercept, slope, seIntercept, seSlope, n, mse };
+}
+
+function twoSidedTPvalue(t: number, df: number): number | null {
+  if (!(df > 0) || !Number.isFinite(t)) return null;
+  // Approximate via normal for large df; otherwise use erf on z-like transform
+  const z = Math.abs(t) * (1 - 1 / (4 * df));
+  const cdf = 0.5 * (1 + erfApprox(z / Math.SQRT2));
+  return Math.max(0, Math.min(1, 2 * (1 - cdf)));
+}
+
+export function renderFunnelSvg(
+  studies: StudyEffect[],
+  summary: MetaSummary,
+  opts: { title?: string; width?: number; filled?: StudyEffect[] } = {},
+): string {
+  const width = opts.width || 720;
+  const height = 420;
+  const pad = { top: 48, right: 36, bottom: 48, left: 64 };
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+  const all = [...studies, ...(opts.filled || [])];
+  const xs = all.map((s) => s.yiDisplay);
+  const ys = all.map((s) => s.sei);
+  let minX = Math.min(...xs, summary.yiDisplay);
+  let maxX = Math.max(...xs, summary.yiDisplay);
+  if (minX === maxX) {
+    minX -= 1;
+    maxX += 1;
+  }
+  const maxSei = Math.max(...ys, 1e-6) * 1.12;
+  const xScale = (v: number) => pad.left + ((v - minX) / (maxX - minX)) * plotW;
+  const yScale = (sei: number) => pad.top + (sei / maxSei) * plotH;
+  const nullX = summary.measure === 'OR' || summary.measure === 'RR' ? xScale(1) : xScale(0);
+  const pooledX = xScale(summary.yiDisplay);
+  const lines: string[] = [];
+  lines.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`);
+  lines.push(`<rect width="100%" height="100%" fill="#fbfcfb"/>`);
+  lines.push(`<text x="20" y="28" font-family="DM Sans, sans-serif" font-size="14" fill="#142321">${escapeXml(opts.title || 'Funnel plot')}</text>`);
+  lines.push(`<line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${pad.top + plotH}" stroke="#dfe7e3"/>`);
+  lines.push(`<line x1="${pad.left}" y1="${pad.top + plotH}" x2="${pad.left + plotW}" y2="${pad.top + plotH}" stroke="#dfe7e3"/>`);
+  lines.push(`<line x1="${nullX}" y1="${pad.top}" x2="${nullX}" y2="${pad.top + plotH}" stroke="#dfe7e3" stroke-dasharray="4 4"/>`);
+  lines.push(`<line x1="${pooledX}" y1="${pad.top}" x2="${pooledX}" y2="${pad.top + plotH}" stroke="#146a61" stroke-dasharray="3 3"/>`);
+  // Pseudo 95% CI funnel around pooled estimate on display scale (approx via SE on log/identity scale)
+  const z = normPpf(0.975);
+  const topY = pad.top;
+  const bottomY = pad.top + plotH;
+  const seiAtTop = 0;
+  const seiAtBottom = maxSei;
+  const leftTop = xScale(displayScale(summary.measure, summary.yi - z * seiAtTop));
+  const rightTop = xScale(displayScale(summary.measure, summary.yi + z * seiAtTop));
+  const leftBottom = xScale(displayScale(summary.measure, summary.yi - z * seiAtBottom));
+  const rightBottom = xScale(displayScale(summary.measure, summary.yi + z * seiAtBottom));
+  lines.push(`<path d="M ${leftTop} ${topY} L ${leftBottom} ${bottomY}" stroke="#b7c4c0" fill="none"/>`);
+  lines.push(`<path d="M ${rightTop} ${topY} L ${rightBottom} ${bottomY}" stroke="#b7c4c0" fill="none"/>`);
+  studies.forEach((s) => {
+    lines.push(`<circle cx="${xScale(s.yiDisplay)}" cy="${yScale(s.sei)}" r="5" fill="#146a61" fill-opacity="0.85"><title>${escapeXml(s.label)}</title></circle>`);
+  });
+  (opts.filled || []).forEach((s) => {
+    lines.push(`<circle cx="${xScale(s.yiDisplay)}" cy="${yScale(s.sei)}" r="5" fill="none" stroke="#c4574d" stroke-width="2"><title>${escapeXml(s.label)}</title></circle>`);
+  });
+  lines.push(`<text x="${pad.left}" y="${height - 16}" font-family="DM Sans, sans-serif" font-size="10" fill="#738580">x = effect · y = SE · solid = observed · open = filled</text>`);
+  lines.push('</svg>');
+  return lines.join('');
+}
+
+export function runEgger(rows: EffectInput[], measure: MetaMeasure, model: MetaModel = 'random') {
+  const studies = requireStudies(rows, measure, 3);
+  const base = runFixedRandom(rows, measure);
+  const summary = model === 'fixed' ? base.fixed : base.random;
+  const xs = studies.map((s) => 1 / s.sei);
+  const ys = studies.map((s) => s.yi / s.sei);
+  const fit = ordinaryLeastSquares(xs, ys);
+  const t = fit.seIntercept > 0 ? fit.intercept / fit.seIntercept : 0;
+  const pValue = twoSidedTPvalue(t, fit.n - 2);
+  return {
+    studies,
+    fixed: base.fixed,
+    random: base.random,
+    summary,
+    egger: {
+      intercept: fit.intercept,
+      slope: fit.slope,
+      seIntercept: fit.seIntercept,
+      seSlope: fit.seSlope,
+      t,
+      df: fit.n - 2,
+      pValue,
+      interpretation:
+        pValue != null && pValue < 0.1
+          ? 'Possible small-study / publication bias (Egger p < 0.10)'
+          : 'No strong evidence of funnel asymmetry by Egger test',
+    },
+  };
+}
+
+export function runLeaveOneOut(rows: EffectInput[], measure: MetaMeasure, model: MetaModel = 'random') {
+  const studies = requireStudies(rows, measure, 2);
+  const base = runFixedRandom(rows, measure);
+  const summary = model === 'fixed' ? base.fixed : base.random;
+  const leaveOneOut = studies.map((omit) => {
+    const rest = studies.filter((s) => s.id !== omit.id);
+    const pooled = pool(rest, measure, model);
+    return {
+      omittedId: omit.id,
+      omittedLabel: omit.label,
+      pooled,
+    };
+  });
+  return { studies, fixed: base.fixed, random: base.random, summary, leaveOneOut };
+}
+
+export function runSubgroup(rows: EffectInput[], measure: MetaMeasure, model: MetaModel = 'random') {
+  const studies = requireStudies(rows, measure, 1);
+  const base = runFixedRandom(rows, measure);
+  const summary = model === 'fixed' ? base.fixed : base.random;
+  const groups = new Map<string, StudyEffect[]>();
+  for (const s of studies) {
+    const key = (s.subgroup || '').trim() || '(ungrouped)';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(s);
+  }
+  if ([...groups.keys()].every((k) => k === '(ungrouped)')) {
+    throw new Error('Subgroup analysis needs at least one non-empty subgroup label on effect rows');
+  }
+  const subgroups = [...groups.entries()].map(([name, groupStudies]) => ({
+    name,
+    k: groupStudies.length,
+    pooled: pool(groupStudies, measure, model),
+  }));
+  return { studies, fixed: base.fixed, random: base.random, summary, subgroups };
+}
+
+export function runCumulative(rows: EffectInput[], measure: MetaMeasure, model: MetaModel = 'random') {
+  const studies = requireStudies(rows, measure, 1);
+  const ordered = [...studies].sort((a, b) => a.label.localeCompare(b.label, 'en'));
+  const base = runFixedRandom(rows, measure);
+  const summary = model === 'fixed' ? base.fixed : base.random;
+  const cumulative = ordered.map((_, idx) => {
+    const slice = ordered.slice(0, idx + 1);
+    return {
+      addedId: ordered[idx].id,
+      addedLabel: ordered[idx].label,
+      k: slice.length,
+      pooled: pool(slice, measure, model),
+    };
+  });
+  return { studies: ordered, fixed: base.fixed, random: base.random, summary, cumulative };
+}
+
+export function runPredictionInterval(rows: EffectInput[], measure: MetaMeasure) {
+  const studies = requireStudies(rows, measure, 3);
+  const base = runFixedRandom(rows, measure);
+  const summary = base.random;
+  const df = Math.max(1, summary.k - 2);
+  const tCrit = tPpf(0.975, df);
+  const predSe = Math.sqrt(summary.tau2 + summary.sei * summary.sei);
+  const piLow = summary.yi - tCrit * predSe;
+  const piHigh = summary.yi + tCrit * predSe;
+  const predictionInterval = {
+    df,
+    tCrit,
+    piLow,
+    piHigh,
+    piLowDisplay: displayScale(measure, piLow),
+    piHighDisplay: displayScale(measure, piHigh),
+  };
+  return { studies, fixed: base.fixed, random: base.random, summary, predictionInterval };
+}
+
+/**
+ * Simplified Duval & Tweedie trim-and-fill (L0-style) on the effect scale.
+ * Estimates missing studies on the sparse side, mirrors them, then re-pools.
+ */
+export function runTrimFill(rows: EffectInput[], measure: MetaMeasure, model: MetaModel = 'random') {
+  const studies = requireStudies(rows, measure, 3);
+  const base = runFixedRandom(rows, measure);
+  let theta = (model === 'fixed' ? base.fixed : base.random).yi;
+  let filledCount = 0;
+  for (let iter = 0; iter < 20; iter += 1) {
+    const centered = studies.map((s) => ({ ...s, c: s.yi - theta })).sort((a, b) => a.c - b.c);
+    const n = centered.length;
+    // L0 estimator: number of studies with positive centered effects that lack mirrors
+    let r0 = 0;
+    for (let i = 0; i < n; i += 1) {
+      if (centered[i].c > 0) r0 += 1;
+    }
+    const gamma = Math.max(0, r0 - (n - r0));
+    if (gamma === filledCount) break;
+    filledCount = gamma;
+    const positives = centered.filter((s) => s.c > 0).sort((a, b) => b.c - a.c);
+    const mirrors: StudyEffect[] = positives.slice(0, gamma).map((s, idx) => {
+      const yi = 2 * theta - s.yi;
+      const z = normPpf(0.975);
+      return {
+        id: `filled_${idx + 1}`,
+        label: `Filled ${idx + 1}`,
+        yi,
+        sei: s.sei,
+        wi: 1 / (s.sei * s.sei),
+        yiDisplay: displayScale(measure, yi),
+        ciLow: displayScale(measure, yi - z * s.sei),
+        ciHigh: displayScale(measure, yi + z * s.sei),
+        subgroup: '',
+        nT: null,
+        nC: null,
+        nTotal: null,
+      };
+    });
+    const combined = [...studies, ...mirrors];
+    theta = pool(combined, measure, model).yi;
+  }
+
+  const positives = studies
+    .map((s) => ({ ...s, c: s.yi - theta }))
+    .filter((s) => s.c > 0)
+    .sort((a, b) => b.c - a.c);
+  const filled: StudyEffect[] = positives.slice(0, filledCount).map((s, idx) => {
+    const yi = 2 * theta - s.yi;
+    const z = normPpf(0.975);
+    return {
+      id: `filled_${idx + 1}`,
+      label: `Filled ${idx + 1}`,
+      yi,
+      sei: s.sei,
+      wi: 1 / (s.sei * s.sei),
+      yiDisplay: displayScale(measure, yi),
+      ciLow: displayScale(measure, yi - z * s.sei),
+      ciHigh: displayScale(measure, yi + z * s.sei),
+      subgroup: '',
+      nT: null,
+      nC: null,
+      nTotal: null,
+    };
+  });
+  const adjusted = pool([...studies, ...filled], measure, model);
+  const observed = model === 'fixed' ? base.fixed : base.random;
+  return {
+    studies,
+    fixed: base.fixed,
+    random: base.random,
+    summary: adjusted,
+    trimFill: {
+      filledCount,
+      observed,
+      adjusted,
+      filled,
+    },
+  };
+}
+
+export type MetaRecipeResult = {
+  studies: StudyEffect[];
+  fixed?: MetaSummary;
+  random?: MetaSummary;
+  summary: MetaSummary;
+  plotKind: 'forest' | 'funnel' | 'table';
+  forestSvg: string;
+  egger?: ReturnType<typeof runEgger>['egger'];
+  leaveOneOut?: ReturnType<typeof runLeaveOneOut>['leaveOneOut'];
+  subgroups?: ReturnType<typeof runSubgroup>['subgroups'];
+  cumulative?: ReturnType<typeof runCumulative>['cumulative'];
+  predictionInterval?: ReturnType<typeof runPredictionInterval>['predictionInterval'];
+  trimFill?: ReturnType<typeof runTrimFill>['trimFill'];
+};
+
+export function runMetaRecipe(
+  recipe: Exclude<MetaRecipe, 'network'>,
+  rows: EffectInput[],
+  measure: MetaMeasure,
+  model: MetaModel,
+  title: string,
+): MetaRecipeResult {
+  if (recipe === 'fixed_random') {
+    const out = runFixedRandom(rows, measure);
+    const summary = model === 'fixed' ? out.fixed : out.random;
+    return {
+      ...out,
+      summary,
+      plotKind: 'forest',
+      forestSvg: renderForestSvg(out.studies, summary, { title }),
+    };
+  }
+  if (recipe === 'funnel') {
+    const out = runFixedRandom(rows, measure);
+    const summary = model === 'fixed' ? out.fixed : out.random;
+    return {
+      ...out,
+      summary,
+      plotKind: 'funnel',
+      forestSvg: renderFunnelSvg(out.studies, summary, { title: `${title} · Funnel` }),
+    };
+  }
+  if (recipe === 'egger') {
+    const out = runEgger(rows, measure, model);
+    return {
+      studies: out.studies,
+      fixed: out.fixed,
+      random: out.random,
+      summary: out.summary,
+      plotKind: 'funnel',
+      forestSvg: renderFunnelSvg(out.studies, out.summary, { title: `${title} · Egger` }),
+      egger: out.egger,
+    };
+  }
+  if (recipe === 'leave_one_out') {
+    const out = runLeaveOneOut(rows, measure, model);
+    return {
+      studies: out.studies,
+      fixed: out.fixed,
+      random: out.random,
+      summary: out.summary,
+      plotKind: 'table',
+      forestSvg: renderForestSvg(out.studies, out.summary, { title: `${title} · Leave-one-out` }),
+      leaveOneOut: out.leaveOneOut,
+    };
+  }
+  if (recipe === 'subgroup') {
+    const out = runSubgroup(rows, measure, model);
+    return {
+      studies: out.studies,
+      fixed: out.fixed,
+      random: out.random,
+      summary: out.summary,
+      plotKind: 'table',
+      forestSvg: renderForestSvg(out.studies, out.summary, { title: `${title} · Subgroup` }),
+      subgroups: out.subgroups,
+    };
+  }
+  if (recipe === 'cumulative') {
+    const out = runCumulative(rows, measure, model);
+    const last = out.cumulative[out.cumulative.length - 1]?.pooled || out.summary;
+    return {
+      studies: out.studies,
+      fixed: out.fixed,
+      random: out.random,
+      summary: last,
+      plotKind: 'table',
+      forestSvg: renderForestSvg(out.studies, last, { title: `${title} · Cumulative` }),
+      cumulative: out.cumulative,
+    };
+  }
+  if (recipe === 'prediction_interval') {
+    const out = runPredictionInterval(rows, measure);
+    return {
+      studies: out.studies,
+      fixed: out.fixed,
+      random: out.random,
+      summary: out.summary,
+      plotKind: 'forest',
+      forestSvg: renderForestSvg(out.studies, out.summary, {
+        title: `${title} · Prediction interval ${out.predictionInterval.piLowDisplay.toFixed(2)}–${out.predictionInterval.piHighDisplay.toFixed(2)}`,
+      }),
+      predictionInterval: out.predictionInterval,
+    };
+  }
+  if (recipe === 'trim_fill') {
+    const out = runTrimFill(rows, measure, model);
+    return {
+      studies: out.studies,
+      fixed: out.fixed,
+      random: out.random,
+      summary: out.summary,
+      plotKind: 'funnel',
+      forestSvg: renderFunnelSvg(out.studies, out.summary, {
+        title: `${title} · Trim-and-fill`,
+        filled: out.trimFill.filled,
+      }),
+      trimFill: out.trimFill,
+    };
+  }
+  throw new Error(`Unknown TypeScript meta recipe: ${recipe}`);
 }
 
 export function renderForestSvg(
