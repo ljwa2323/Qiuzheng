@@ -646,28 +646,62 @@ function renderProjectPicker() {
   </div></div>`;
 }
 
+/** Scroll containers that must survive full app() re-renders. */
+const SCROLL_PRESERVE_SELECTORS = [
+  'main.workspace',
+  '.sidebar',
+  '.ai-content',
+  '.table-wrap',
+  '.rob-question-list',
+  '.pdf-viewer',
+  '.screening-protocol-tips .panel-body',
+  '.search-results',
+  '.project-list',
+  '.forest-wrap',
+  '.synthesis-markdown',
+  '.extract-trace-body',
+  '.assistant-pre',
+  '.code-box',
+  '.modal-body',
+  '.modal-backdrop',
+  '.meta-analysis-list',
+  '[data-scroll-preserve]',
+];
+
 function captureScrollPositions() {
-  const ai = document.querySelector('.ai-content');
-  const workspace = document.querySelector('main.workspace');
-  const table = document.querySelector('.table-wrap');
+  const nodes = {};
+  for (const selector of SCROLL_PRESERVE_SELECTORS) {
+    document.querySelectorAll(selector).forEach((el, index) => {
+      if (!(el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1)) return;
+      nodes[`${selector}::${index}`] = {
+        top: el.scrollTop,
+        left: el.scrollLeft,
+      };
+    });
+  }
   return {
-    aiContent: ai ? ai.scrollTop : null,
-    workspace: workspace ? workspace.scrollTop : null,
-    table: table ? table.scrollTop : null,
     windowY: window.scrollY,
+    windowX: window.scrollX,
+    nodes,
   };
 }
 
 function restoreScrollPositions(positions) {
   if (!positions) return;
   const apply = () => {
-    const ai = document.querySelector('.ai-content');
-    if (ai && positions.aiContent != null) ai.scrollTop = positions.aiContent;
-    const workspace = document.querySelector('main.workspace');
-    if (workspace && positions.workspace != null) workspace.scrollTop = positions.workspace;
-    const table = document.querySelector('.table-wrap');
-    if (table && positions.table != null) table.scrollTop = positions.table;
-    if (positions.windowY != null) window.scrollTo(0, positions.windowY);
+    if (positions.windowY != null || positions.windowX != null) {
+      window.scrollTo(positions.windowX || 0, positions.windowY || 0);
+    }
+    Object.entries(positions.nodes || {}).forEach(([key, value]) => {
+      const splitAt = key.lastIndexOf('::');
+      if (splitAt < 0 || !value) return;
+      const selector = key.slice(0, splitAt);
+      const index = Number(key.slice(splitAt + 2));
+      const el = document.querySelectorAll(selector)[index];
+      if (!el) return;
+      el.scrollTop = value.top;
+      el.scrollLeft = value.left || 0;
+    });
   };
   apply();
   requestAnimationFrame(apply);
@@ -701,6 +735,7 @@ function app() {
     return;
   }
   if (state.boot === 'picker') {
+    const scrollPositions = captureScrollPositions();
     document.getElementById('app').innerHTML = renderProjectPicker();
     document.title = '选择项目 · 求证';
     document.getElementById('create-project-form')?.addEventListener('submit', handleCreateProject);
@@ -711,6 +746,7 @@ function app() {
         app();
       }
     });
+    restoreScrollPositions(scrollPositions);
     return;
   }
   const scrollPositions = captureScrollPositions();
