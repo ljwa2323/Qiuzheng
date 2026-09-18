@@ -627,14 +627,22 @@ function renderAuth() {
 
 function renderProjectPicker() {
   const canReturn = Boolean(state.projectId && state.projects.some((p) => p.id === state.projectId));
-  return `<div class="auth-shell"><div class="auth-card wide"><div class="brand-mark">证</div><h1>选择项目</h1><p class="muted">你好，${escapeHtml(state.user?.name || '')}</p>
-    <div class="project-list">${state.projects.map((p) => `<button class="project-row" data-action="open-project" data-id="${p.id}"><strong>${escapeHtml(p.name)}</strong><small>${escapeHtml(p.team?.name || '')} · ${p._count?.citations || 0} 篇文献</small>${p.description ? `<small class="project-desc">${escapeHtml(p.description)}</small>` : ''}</button>`).join('') || '<div class="empty-state"><p>还没有项目</p></div>'}</div>
-    <form class="form-grid" id="create-project-form" style="margin-top:18px">
-      <div class="field full"><label for="new-project-name">新建项目</label><input id="new-project-name" name="name" required placeholder="项目名称" /></div>
-      <div class="field full"><label for="new-project-description">项目说明</label><textarea id="new-project-description" name="description" rows="2" placeholder="可选"></textarea></div>
-      <div class="field full"><button class="primary-button" type="submit">创建项目</button></div>
-    </form>
-    ${canReturn ? '<div class="compose-actions" style="margin-top:12px"><button class="ghost-button" data-action="return-project">返回项目</button></div>' : ''}
+  const projectCards = state.projects.map((p) => `<button class="project-row" data-action="open-project" data-id="${p.id}" type="button"><strong>${escapeHtml(p.name)}</strong><small>${escapeHtml(p.team?.name || '')} · ${p._count?.citations || 0} 篇文献</small>${p.description ? `<small class="project-desc">${escapeHtml(p.description)}</small>` : ''}</button>`).join('')
+    || '<div class="empty-state compact"><p>还没有项目，先在下方创建一个</p></div>';
+  return `<div class="auth-shell"><div class="auth-card wide picker-card"><div class="brand-mark">证</div><h1>选择项目</h1><p class="muted">你好，${escapeHtml(state.user?.name || '')}</p>
+    <section class="picker-section">
+      <div class="picker-section-head"><strong>打开已有项目</strong><p class="muted">上下滑动浏览，点击进入工作区</p></div>
+      <div class="project-list">${projectCards}</div>
+    </section>
+    <section class="picker-section">
+      <div class="picker-section-head"><strong>新建项目</strong><p class="muted">填写名称后即可开始</p></div>
+      <form class="form-grid" id="create-project-form">
+        <div class="field full"><label for="new-project-name">项目名称</label><input id="new-project-name" name="name" required placeholder="项目名称" /></div>
+        <div class="field full"><label for="new-project-description">项目说明</label><textarea id="new-project-description" name="description" rows="2" placeholder="可选"></textarea></div>
+        <div class="field full"><button class="primary-button" type="submit">创建项目</button></div>
+      </form>
+    </section>
+    ${canReturn ? '<div class="compose-actions picker-footer"><button class="ghost-button" data-action="return-project" type="button">返回项目</button></div>' : ''}
   </div></div>`;
 }
 

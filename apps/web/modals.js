@@ -86,30 +86,56 @@ export function buildModal(ctx) {
             return `<div class="credential-row ${c.id === state.credentialId || c.id === state.embeddingCredentialId ? 'active' : ''}"><strong>${escapeHtml(c.name)}</strong><small>${escapeHtml(c.provider)} · ${escapeHtml(c.defaultModel)} · ****${escapeHtml(c.apiKeyLast4)}${c.thinkingEnabled ? ' · Thinking 开' : ''}</small>${badges}</div>`;
           }).join('')}</div><p class="muted" style="font-size:11px;margin-top:6px">聊天与 Embedding 可使用不同凭据、不同 API Key；密钥仅服务端加密保存。</p></div>`
         : '<div class="field full"><div class="status-banner">还没有已保存的模型凭据。</div></div>';
-      return `<form class="form-grid" id="modal-form">
-<div class="field full"><label for="project-name">项目名称</label><input id="project-name" name="name" value="${escapeHtml(state.projectName)}" required /></div>
-<div class="field full"><label for="project-description">项目说明</label><textarea id="project-description" name="description" rows="3" placeholder="可选：项目背景、范围或备注">${escapeHtml(state.projectDescription || '')}</textarea></div>
-<div class="field full"><label for="llm-response-language">AI 回答语言</label><select id="llm-response-language" name="llmResponseLanguage"><option value="zh" ${state.llmResponseLanguage !== 'en' ? 'selected' : ''}>中文</option><option value="en" ${state.llmResponseLanguage === 'en' ? 'selected' : ''}>English</option></select><p class="muted" style="font-size:11px;margin-top:6px">固定注入到所有 AI 调用：自然语言字段按所选语言输出；原文证据引用保持不翻译。</p></div>
-<div class="field full settings-section-title"><strong>PubMed / NCBI</strong><p class="muted" style="font-size:11px;margin:4px 0 0">用于检索策略生成时校验 MeSH 受控词（E-utilities）。无 Key 也可调用，但更容易限流。</p></div>
-<div class="field full"><label for="pubmed-api-key">PubMed API Key</label><input id="pubmed-api-key" name="pubmedApiKey" type="password" autocomplete="off" placeholder="${state.hasPubmedApiKey ? `已保存 ****${escapeHtml(state.pubmedApiKeyLast4 || '')}；填写则更新` : '粘贴 NCBI Account 中的 API Key'}" /><label class="check-field" style="margin-top:8px"><input name="clearPubmedApiKey" type="checkbox" /> 清除已保存的 PubMed API Key</label></div>
-${savedList}
-<div class="field full settings-section-title"><strong>聊天模型凭据</strong><p class="muted" style="font-size:11px;margin:4px 0 0">用于筛选、提取、助手对话等 chat/completions 任务</p></div>
-<div class="field full"><label for="credential-id">使用的聊天凭据</label><select id="credential-id" name="credentialId" data-settings-credential><option value="">未选择</option>${state.credentials.map((c) => `<option value="${c.id}" ${state.credentialId === c.id ? 'selected' : ''} data-provider="${escapeHtml(c.provider)}" data-model="${escapeHtml(c.defaultModel)}" data-thinking="${c.thinkingEnabled ? '1' : '0'}">${escapeHtml(c.name)} · ${c.provider} · ****${c.apiKeyLast4}</option>`).join('')}</select></div>
-<div class="field full" id="thinking-field" ${supportsThinking ? '' : 'hidden'}><label class="check-field"><input id="cred-thinking" name="thinkingEnabled" type="checkbox" ${currentCred?.thinkingEnabled ? 'checked' : ''} /> 启用 Thinking（推理链）</label><p class="muted" style="font-size:11px;margin-top:6px">对 Qwen3 / Nemotron / DeepSeek-R1 等支持 thinking 的模型生效。</p></div>
-<div class="field"><label for="cred-provider">聊天 Provider</label><select id="cred-provider" name="provider" data-settings-provider><option value="nvidia">NVIDIA NIM</option><option value="openai">OpenAI</option><option value="deepseek">DeepSeek</option><option value="azure">Azure OpenAI</option><option value="custom">Custom</option></select></div>
-<div class="field"><label for="cred-model">默认聊天模型</label><input id="cred-model" name="defaultModel" data-settings-model placeholder="meta/llama-3.1-70b-instruct" value="" /></div>
-<div class="field full"><label for="cred-name">聊天凭据名称</label><input id="cred-name" name="credName" placeholder="例如 NVIDIA chat" /></div>
-<div class="field full"><label for="cred-base">聊天 Base URL</label><input id="cred-base" name="baseUrl" placeholder="https://integrate.api.nvidia.com/v1" /></div>
-<div class="field full"><label for="cred-key">聊天 API Key</label><input id="cred-key" name="apiKey" type="password" autocomplete="off" placeholder="${currentCred ? `已保存 ****${currentCred.apiKeyLast4}；填写则新建聊天凭据` : '粘贴聊天 API Key'}" /></div>
-<div class="field full settings-section-title"><strong>Embedding 模型凭据</strong><p class="muted" style="font-size:11px;margin:4px 0 0">用于原文证据定位；可与聊天完全独立（不同 Provider / Base URL / API Key）</p></div>
-<div class="field full"><label for="embedding-credential-id">使用的 Embedding 凭据</label><select id="embedding-credential-id" name="embeddingCredentialId"><option value="">与聊天凭据相同</option>${state.credentials.map((c) => `<option value="${c.id}" ${state.embeddingCredentialId === c.id ? 'selected' : ''}>${escapeHtml(c.name)} · ${c.provider} · ****${c.apiKeyLast4}</option>`).join('')}</select></div>
-<div class="field"><label for="emb-provider">Embedding Provider</label><select id="emb-provider" name="embProvider"><option value="openai">OpenAI</option><option value="nvidia">NVIDIA NIM</option><option value="azure">Azure OpenAI</option><option value="custom">Custom</option><option value="deepseek">DeepSeek</option></select></div>
-<div class="field"><label for="embedding-model">Embedding 模型</label><input id="embedding-model" name="embeddingModel" value="${escapeHtml(state.embeddingModel || '')}" placeholder="text-embedding-3-small / nvidia/nv-embedqa-e5-v5" /></div>
-<div class="field full"><label for="emb-name">Embedding 凭据名称</label><input id="emb-name" name="embName" placeholder="例如 OpenAI embedding" /></div>
-<div class="field full"><label for="emb-base">Embedding Base URL</label><input id="emb-base" name="embBaseUrl" placeholder="https://api.openai.com/v1" /></div>
-<div class="field full"><label for="emb-key">Embedding API Key</label><input id="emb-key" name="embApiKey" type="password" autocomplete="off" placeholder="${embeddingCred ? `已绑定 ****${embeddingCred.apiKeyLast4}；填写则新建独立 Embedding 凭据` : '粘贴 Embedding 专用 API Key（可与聊天不同）'}" /><p class="muted" style="font-size:11px;margin-top:6px">填写 Embedding API Key 后会新建独立凭据并绑定到本项目；不填则沿用上方所选 Embedding 凭据，或与聊天共用。</p></div>
-<div class="field full settings-section-title"><strong>危险操作</strong><p class="muted" style="font-size:11px;margin:4px 0 0">删除项目将永久清除文献、筛选、提取、Meta 与综合等全部数据，不可撤销。仅项目 owner 可执行。</p></div>
-<div class="field full"><button type="button" class="ghost-button danger-text" data-action="delete-project-start">${icon('x')} 删除项目</button></div>
+      return `<form class="settings-form" id="modal-form">
+<section class="settings-block">
+  <div class="settings-block-head"><span class="settings-step">1</span><div><strong>项目基本信息</strong><p class="muted">名称、说明与 AI 输出语言</p></div></div>
+  <div class="form-grid">
+    <div class="field full"><label for="project-name">项目名称</label><input id="project-name" name="name" value="${escapeHtml(state.projectName)}" required /></div>
+    <div class="field full"><label for="project-description">项目说明</label><textarea id="project-description" name="description" rows="3" placeholder="可选：项目背景、范围或备注">${escapeHtml(state.projectDescription || '')}</textarea></div>
+    <div class="field full"><label for="llm-response-language">AI 回答语言</label><select id="llm-response-language" name="llmResponseLanguage"><option value="zh" ${state.llmResponseLanguage !== 'en' ? 'selected' : ''}>中文</option><option value="en" ${state.llmResponseLanguage === 'en' ? 'selected' : ''}>English</option></select><p class="muted settings-hint">自然语言字段按所选语言输出；原文证据引用保持不翻译。</p></div>
+  </div>
+</section>
+<section class="settings-block">
+  <div class="settings-block-head"><span class="settings-step">2</span><div><strong>PubMed / NCBI</strong><p class="muted">检索策略生成时校验 MeSH；无 Key 也可调用，但更容易限流</p></div></div>
+  <div class="form-grid">
+    <div class="field full"><label for="pubmed-api-key">PubMed API Key</label><input id="pubmed-api-key" name="pubmedApiKey" type="password" autocomplete="off" placeholder="${state.hasPubmedApiKey ? `已保存 ****${escapeHtml(state.pubmedApiKeyLast4 || '')}；填写则更新` : '粘贴 NCBI Account 中的 API Key'}" /><label class="check-field" style="margin-top:8px"><input name="clearPubmedApiKey" type="checkbox" /> 清除已保存的 PubMed API Key</label></div>
+  </div>
+</section>
+<section class="settings-block">
+  <div class="settings-block-head"><span class="settings-step">3</span><div><strong>已保存凭据</strong><p class="muted">聊天与 Embedding 可使用不同凭据；密钥仅服务端加密保存</p></div></div>
+  <div class="form-grid">${savedList}</div>
+</section>
+<section class="settings-block">
+  <div class="settings-block-head"><span class="settings-step">4</span><div><strong>聊天模型</strong><p class="muted">用于筛选、提取、助手对话等 chat/completions 任务</p></div></div>
+  <div class="form-grid">
+    <div class="field full"><label for="credential-id">使用的聊天凭据</label><select id="credential-id" name="credentialId" data-settings-credential><option value="">未选择</option>${state.credentials.map((c) => `<option value="${c.id}" ${state.credentialId === c.id ? 'selected' : ''} data-provider="${escapeHtml(c.provider)}" data-model="${escapeHtml(c.defaultModel)}" data-thinking="${c.thinkingEnabled ? '1' : '0'}">${escapeHtml(c.name)} · ${c.provider} · ****${c.apiKeyLast4}</option>`).join('')}</select></div>
+    <div class="field full" id="thinking-field" ${supportsThinking ? '' : 'hidden'}><label class="check-field"><input id="cred-thinking" name="thinkingEnabled" type="checkbox" ${currentCred?.thinkingEnabled ? 'checked' : ''} /> 启用 Thinking（推理链）</label><p class="muted settings-hint">对 Qwen3 / Nemotron / DeepSeek-R1 等支持 thinking 的模型生效。</p></div>
+    <div class="field full settings-subhead"><strong>新建或更新聊天凭据</strong><p class="muted">填写 API Key 会新建凭据；仅改 Provider / 模型会更新当前所选凭据</p></div>
+    <div class="field"><label for="cred-provider">聊天 Provider</label><select id="cred-provider" name="provider" data-settings-provider><option value="nvidia">NVIDIA NIM</option><option value="openai">OpenAI</option><option value="deepseek">DeepSeek</option><option value="azure">Azure OpenAI</option><option value="custom">Custom</option></select></div>
+    <div class="field"><label for="cred-model">默认聊天模型</label><input id="cred-model" name="defaultModel" data-settings-model placeholder="meta/llama-3.1-70b-instruct" value="" /></div>
+    <div class="field full"><label for="cred-name">聊天凭据名称</label><input id="cred-name" name="credName" placeholder="例如 NVIDIA chat" /></div>
+    <div class="field full"><label for="cred-base">聊天 Base URL</label><input id="cred-base" name="baseUrl" placeholder="https://integrate.api.nvidia.com/v1" /></div>
+    <div class="field full"><label for="cred-key">聊天 API Key</label><input id="cred-key" name="apiKey" type="password" autocomplete="off" placeholder="${currentCred ? `已保存 ****${currentCred.apiKeyLast4}；填写则新建聊天凭据` : '粘贴聊天 API Key'}" /></div>
+  </div>
+</section>
+<section class="settings-block">
+  <div class="settings-block-head"><span class="settings-step">5</span><div><strong>Embedding 模型</strong><p class="muted">用于原文证据定位；可与聊天完全独立</p></div></div>
+  <div class="form-grid">
+    <div class="field full"><label for="embedding-credential-id">使用的 Embedding 凭据</label><select id="embedding-credential-id" name="embeddingCredentialId"><option value="">与聊天凭据相同</option>${state.credentials.map((c) => `<option value="${c.id}" ${state.embeddingCredentialId === c.id ? 'selected' : ''}>${escapeHtml(c.name)} · ${c.provider} · ****${c.apiKeyLast4}</option>`).join('')}</select></div>
+    <div class="field full settings-subhead"><strong>新建独立 Embedding 凭据</strong><p class="muted">不填 API Key 则沿用上方所选凭据，或与聊天共用</p></div>
+    <div class="field"><label for="emb-provider">Embedding Provider</label><select id="emb-provider" name="embProvider"><option value="openai">OpenAI</option><option value="nvidia">NVIDIA NIM</option><option value="azure">Azure OpenAI</option><option value="custom">Custom</option><option value="deepseek">DeepSeek</option></select></div>
+    <div class="field"><label for="embedding-model">Embedding 模型</label><input id="embedding-model" name="embeddingModel" value="${escapeHtml(state.embeddingModel || '')}" placeholder="text-embedding-3-small / nvidia/nv-embedqa-e5-v5" /></div>
+    <div class="field full"><label for="emb-name">Embedding 凭据名称</label><input id="emb-name" name="embName" placeholder="例如 OpenAI embedding" /></div>
+    <div class="field full"><label for="emb-base">Embedding Base URL</label><input id="emb-base" name="embBaseUrl" placeholder="https://api.openai.com/v1" /></div>
+    <div class="field full"><label for="emb-key">Embedding API Key</label><input id="emb-key" name="embApiKey" type="password" autocomplete="off" placeholder="${embeddingCred ? `已绑定 ****${embeddingCred.apiKeyLast4}；填写则新建独立 Embedding 凭据` : '粘贴 Embedding 专用 API Key（可与聊天不同）'}" /></div>
+  </div>
+</section>
+<section class="settings-block danger">
+  <div class="settings-block-head"><span class="settings-step danger">!</span><div><strong>危险操作</strong><p class="muted">删除项目将永久清除文献、筛选、提取、Meta 与综合等全部数据，不可撤销。仅项目 owner 可执行。</p></div></div>
+  <div class="form-grid">
+    <div class="field full"><button type="button" class="ghost-button danger-text" data-action="delete-project-start">${icon('x')} 删除项目</button></div>
+  </div>
+</section>
 </form>`;
     })()],
     'delete-project': ['删除项目', (() => {
@@ -159,5 +185,5 @@ ${savedList}
           ? '确认排除'
           : '保存';
   const saveClass = state.modal === 'delete-fulltext' || state.modal === 'delete-citations' || state.modal === 'delete-extraction-field' || state.modal === 'delete-project' ? 'danger-button' : 'primary-button';
-  return `<div class="modal-backdrop" data-action="modal-backdrop"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-head"><h3 id="modal-title">${title}</h3><button class="icon-button" data-action="modal-close" aria-label="关闭">${icon('x')}</button></div><div class="modal-body">${body}</div><div class="modal-actions"><button class="ghost-button" data-action="modal-close">${saveable ? '取消' : '关闭'}</button>${saveable ? `<button class="${saveClass}" data-action="modal-save">${saveLabel}</button>` : ''}</div></div></div>`;
+  return `<div class="modal-backdrop" data-action="modal-backdrop"><div class="modal${state.modal === 'settings' ? ' modal-settings' : ''}" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-head"><h3 id="modal-title">${title}</h3><button class="icon-button" data-action="modal-close" aria-label="关闭">${icon('x')}</button></div><div class="modal-body">${body}</div><div class="modal-actions"><button class="ghost-button" data-action="modal-close">${saveable ? '取消' : '关闭'}</button>${saveable ? `<button class="${saveClass}" data-action="modal-save">${saveLabel}</button>` : ''}</div></div></div>`;
 }
