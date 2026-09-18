@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE "ProtocolVersion" ADD COLUMN "picoP" TEXT NOT NULL DEFAULT '';
+ALTER TABLE "ProtocolVersion" ADD COLUMN "picoI" TEXT NOT NULL DEFAULT '';
+ALTER TABLE "ProtocolVersion" ADD COLUMN "picoC" TEXT NOT NULL DEFAULT '';
+ALTER TABLE "ProtocolVersion" ADD COLUMN "picoO" TEXT NOT NULL DEFAULT '';

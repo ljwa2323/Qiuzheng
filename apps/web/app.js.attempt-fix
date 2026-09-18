@@ -1,0 +1,1561 @@
+�import { escapeHtml, matchesQuery, parseCitationFile, toCsv } from './core.js';
+import { buildAssistantPanel, assistantFocusId } from './assistant-panel.js';
+import {
+  AuthApi,
+  AuditApi,
+  CitationApi,
+  CredentialApi,
+  ExtractionApi,
+  LlmApi,
+  ProjectApi,
+  ProtocolApi,
+  RiskOfBiasApi,
+  ScreeningApi,
+  TeamApi,
+  clearSession,
+  getAccessToken,
+  setAccessToken,
+} from './src/api.js';
+
+const UI_PREFS_KEY = 'qiuzheng.ui.prefs.v1';
+const PROJECT_KEY = 'qiuzheng.activeProjectId';
+
+const icon = (name, size = 18) => {
+  const paths = {
+    home: '<path d="M3 11 12 4l9 7"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/>',
+    question: '<circle cx="12" cy="12" r="9"/><path d="M9.8 9a2.4 2.4 0 1 1 3.7 2c-1 .6-1.5 1.1-1.5 2"/><path d="M12 17h.01"/>',
+    search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
+    library: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/>',
+    layers: '<path d="m12 2 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/>',
+    file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/>',
+    table: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/>',
+    shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/><path d="m9 12 2 2 4-4"/>',
+    users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+    chart: '<path d="M3 3v18h18"/><path d="m7 16 4-5 4 3 5-8"/>',
+    report: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/><path d="M8 7h8M8 11h8M8 15h5"/>',
+    history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
+    settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H10v-.1A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.5-1H3v-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.5V3h4v.1A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.5 1h.1v4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>',
+    bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/>',
+    spark: '<path d="m12 3-1.1 3.3a4 4 0 0 1-2.6 2.6L5 10l3.3 1.1a4 4 0 0 1 2.6 2.6L12 17l1.1-3.3a4 4 0 0 1 2.6-2.6L19 10l-3.3-1.1a4 4 0 0 1-2.6-2.6L12 3Z"/><path d="m5 3 .5 1.5L7 5l-1.5.5L5 7l-.5-1.5L3 5l1.5-.5L5 3Z"/>',
+    check: '<path d="m5 12 4 4L19 6"/>',
+    x: '<path d="m18 6-12 12M6 6l12 12"/>',
+    alert: '<path d="M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/>',
+    arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+    edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5M12 3v12"/>',
+    download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5M12 15V3"/>',
+    filter: '<path d="M4 5h16M7 12h10M10 19h4"/>',
+    chevron: '<path d="m9 18 6-6-6-6"/>',
+    command: '<path d="M18 9a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12Z"/>',
+    send: '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>',
+    more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+    menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+    target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
+    link: '<path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.1 1"/><path d="M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.1-1"/>',
+    copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+    brain: '<path d="M9.5 4A2.5 2.5 0 0 0 7 6.5v.4a3 3 0 0 0-2 4.8A3.2 3.2 0 0 0 7 17.5 2.5 2.5 0 0 0 12 17V7a3 3 0 0 0-2.5-3Z"/><path d="M14.5 4A2.5 2.5 0 0 1 17 6.5v.4a3 3 0 0 1 2 4.8 3.2 3.2 0 0 1-2 5.8 2.5 2.5 0 0 1-5-.5V7a3 3 0 0 1 2.5-3Z"/>',
+  };
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.file}</svg>`;
+};
+
+const modules = [
+  { id: 'dashboard', label: '$-0�M', icon: 'home' },
+  { id: 'protocol', label: '.���}��ߗ?, icon: 'question' },
+  { id: 'search', label: '���"�#?, icon: 'search' },
+  { id: 'library', label: '����', icon: 'library' },
+  { id: 'screening', label: '�<0�?�R��', icon: 'layers' },
+  { id: 'fulltext', label: 'O&�ۢ�?, icon: 'file' },
+  { id: 'extraction', label: '�HA�,G', icon: 'table' },
+  { id: 'rob', label: 'KӬ6��?, icon: 'shield' },
+  { id: 'adjudication', label: 'P,JAx�', icon: 'users' },
+  { id: 'synthesis', label: '�yAN����[?, icon: 'chart' },
+  { id: 'audit', label: '9�x��', icon: 'history' },
+];
+
+let state;
+let inputRenderTimer;
+
+const emptyCriteria = [];
+const defaultConcepts = [
+  { id: 'concept-1', index: 'Concept 1', title: 'Systematic review', controlled: ['Systematic Reviews [MeSH]'], free: ['systematic review', 'evidence synthesis', 'meta-analysis', 'rapid review'] },
+  { id: 'concept-2', index: 'Concept 2', title: 'Large language model', controlled: ['Artificial Intelligence [MeSH]'], free: ['large language model', 'LLM', 'generative AI', 'GPT', 'ChatGPT'] },
+  { id: 'concept-3', index: 'Concept 3', title: 'Screening workflow', controlled: [], free: ['citation screening', 'study selection', 'title abstract screening', 'full text screening'] },
+];
+
+function freshState() {
+  return {
+    boot: 'loading',
+    authMode: 'login',
+    authError: '',
+    user: null,
+    teams: [],
+    projects: [],
+    projectId: localStorage.getItem(PROJECT_KEY) || '',
+    credentials: [],
+    llmPresets: {},
+    screeningQueue: [],
+    active: location.hash.slice(1) && modules.some(module => module.id === location.hash.slice(1)) ? location.hash.slice(1) : 'dashboard',
+    aiTab: 'decision', aiOpen: true, sidebarOpen: true, screenMode: 'single', screeningIndex: 0,
+    decision: null, db: 'PubMed', extractionTab: 'characteristics', extractionView: 'data', modal: null, modalPayload: null, searchQuery: '', libraryQuery: '',
+    librarySource: 'O)4��.', libraryFullText: 'O)4O&�5�?, auditQuery: '', auditActor: 'O)4���p?, auditModule: 'O)4�3a',
+    projectName: '�D�Z�)?, question: '', criteria: [], concepts: structuredClone(defaultConcepts),
+    citations: [], audits: [], screeningDecisions: {}, screeningCompleted: 0, batchDecisions: {}, selectedBatch: [],
+    adjudicationIndex: 0, fulltextIndex: 0, projectMembers: [], protocolVersion: null, protocolVersions: [],
+    lastAiQuestion: '', lastAiAnswer: '', role: 'viewer', credentialId: '',
+    assistantBusy: false, assistantResult: null, adjudicationSuggestion: null,
+    pendingProtocolSuggestion: null, pendingSearchTerms: null, notificationsRead: true,
+    extractionFields: [], extractionValues: [], robDomains: [], robCitations: [], robJudgements: [], robCitationId: '', robQuestionKey: 'D1.1', robEvidenceDraft: '', robBusy: false,
+  };
+}
+
+function loadUiPrefs() {
+  try {
+    return JSON.parse(localStorage.getItem(UI_PREFS_KEY) || '{}') || {};
+  } catch {
+    return {};
+  }
+}
+
+function persistState() {
+  try {
+    localStorage.setItem(UI_PREFS_KEY, JSON.stringify({
+      screenMode: state.screenMode,
+      extractionTab: state.extractionTab,
+      extractionView: state.extractionView,
+      db: state.db,
+    }));
+    if (state.projectId) localStorage.setItem(PROJECT_KEY, state.projectId);
+  } catch {
+    return false;
+  }
+  return true;
+}
+
+function auditEvent(action, detail, module = titleMap[state.active] || 'System', version = 'Workspace v1') {
+  const time = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'short', hour12: false }).format(new Date()).replaceAll('/', '-');
+  state.audits.unshift({ actor: state.user?.name || 'c?, action, detail, time, version, module });
+}
+
+state = { ...freshState(), ...loadUiPrefs() };
+
+const titleMap = Object.fromEntries(modules.map(m => [m.id, m.label]));
+
+function mapCriteriaFromProtocol(version) {
+  if (!version?.criteria?.length) return [];
+  return version.criteria.map((c) => ({
+    id: c.code,
+    title: c.title,
+    en: c.titleEn || '',
+    include: String(c.includeText || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean),
+    exclude: String(c.excludeText || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean),
+  }));
+}
+
+function mapCitations(rows) {
+  return (rows || []).map((c) => ({
+    id: c.id,
+    title: c.title,
+    authors: `${c.authors || 'Unknown'}${c.year ? ` � ${c.year}` : ''}`,
+    source: c.sources?.[0]?.databaseName || 'Import',
+    hits: c.sources?.length || 1,
+    fullText: c.fullTextStatus || 'Missing',
+    completeness: c.completeness || 0,
+    doi: c.doi || '',
+    abstract: c.abstract || '',
+    raw: c,
+  }));
+}
+
+function mapAudits(rows) {
+  return (rows || []).map((e) => ({
+    actor: e.actorName,
+    action: e.action,
+    detail: e.detail,
+    time: new Date(e.createdAt).toLocaleString('zh-CN', { hour12: false }),
+    version: e.version || '',
+    module: e.module,
+  }));
+}
+
+function screeningConflicts() {
+  const queue = state.screeningQueue.length ? state.screeningQueue : state.citations;
+  return queue.filter((item) => {
+    const human = item.raw?.decisions?.find((d) => d.actor === 'human');
+    const ai = item.raw?.decisions?.find((d) => d.actor === 'ai');
+    const final = item.raw?.decisions?.find((d) => d.actor === 'final');
+    return human && ai && human.decision !== ai.decision && !final;
+  }).map((item) => {
+    const human = item.raw.decisions.find((d) => d.actor === 'human');
+    const ai = item.raw.decisions.find((d) => d.actor === 'ai');
+    return { citation: item, human, ai };
+  });
+}
+
+function includedForFulltext() {
+  const queue = state.screeningQueue.length ? state.screeningQueue : state.citations;
+  return queue.filter((item) => {
+    const human = item.raw?.decisions?.find((d) => d.actor === 'human');
+    const final = item.raw?.decisions?.find((d) => d.actor === 'final');
+    const decision = final?.decision || human?.decision;
+    return decision === 'Include';
+  });
+}
+
+function recomputeDerivedCounts() {
+  const conflicts = screeningConflicts();
+  state.adjudicationRemaining = conflicts.length;
+  state.fulltextRemaining = includedForFulltext().filter((item) => item.fullText !== 'Full text').length;
+  if (!state.adjudicationIndex || state.adjudicationIndex >= conflicts.length) state.adjudicationIndex = 0;
+}
+
+function currentScreenCase() {
+  const queue = state.screeningQueue.length ? state.screeningQueue : state.citations;
+  const item = queue[state.screeningIndex % Math.max(queue.length, 1)];
+  if (!item) {
+    return {
+      id: null,
+      title: 'ƛ��o��?,
+      authors: '',
+      journal: '',
+      abstract: '��5N���~�c�d%�x�(������SO�GTl�p�?,
+      ai: '',
+      confidence: '',
+      reason: '',
+      criterion: '',
+      evidence: '',
+    };
+  }
+  const human = item.raw?.decisions?.find((d) => d.actor === 'human');
+  const ai = item.raw?.decisions?.find((d) => d.actor === 'ai');
+  return {
+    id: item.id,
+    title: item.title,
+    authors: item.authors,
+    journal: item.raw?.journal || item.source || '',
+    abstract: item.abstract || item.raw?.abstract || '',
+    ai: ai?.decision || '',
+    confidence: ai?.confidence || '',
+    reason: ai?.rationale || '',
+    criterion: (ai?.criterionIds || []).join(' � '),
+    evidence: ai?.evidence || '',
+    humanDecision: human?.decision || null,
+  };
+}
+
+function downloadFile(filename, content, type = 'text/plain;charset=utf-8') {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function navigate(page) {
+  if (!titleMap[page]) page = 'dashboard';
+  state.active = page;
+  if (window.matchMedia('(max-width: 740px)').matches) state.sidebarOpen = false;
+  state.decision = null;
+  state.modal = null;
+  state.modalPayload = null;
+  if (location.hash !== `#${page}`) history.pushState(null, '', `#${page}`);
+  window.scrollTo(0, 0);
+  app();
+}
+
+function moduleCount(id, fallback) {
+  if (id === 'screening') return Math.max(0, (state.citations.length || 0) - (state.screeningCompleted || 0));
+  if (id === 'fulltext') return state.fulltextRemaining;
+  if (id === 'adjudication') return state.adjudicationRemaining;
+  if (id === 'library') return state.citations.length;
+  return fallback ?? state.citations.length;
+}
+
+function searchableRecords() {
+  const citations = state.citations.map(item => ({ type: '��', title: item.title, meta: `${item.authors} � ${item.source}`, nav: 'library' }));
+  const criteria = state.criteria.flatMap(item => [
+    ...item.include.map((text, index) => ({ type: '�����o', title: `${item.id}${index + 1} � ${text}`, meta: item.title, nav: 'protocol' })),
+    ...item.exclude.map((text, index) => ({ type: '�����o', title: `${item.id}${item.include.length + index + 1} � ${text}`, meta: item.title, nav: 'protocol' })),
+  ]);
+  const audits = state.audits.map(item => ({ type: '9�x��', title: `${item.actor} � ${item.action}`, meta: item.detail, nav: 'audit' }));
+  return [...citations, ...criteria, ...audits];
+}
+
+function sidebar() {
+  return `<aside class="sidebar ${state.sidebarOpen ? 'open' : ''}">
+    <div class="brand"><div class="brand-mark">�?/div><div><div class="brand-name">��	</div><div class="brand-sub">Evidence Workspace</div></div></div>
+    <button class="project-switcher" data-action="switch-project"><small>0��$-0</small><strong><span>${escapeHtml(state.projectName)}</span><span>1?/span></strong></button>
+    <div class="nav-section-label">��4z�</div>
+    <nav class="nav-list">${modules.slice(0,10).map(navItem).join('')}</nav>
+    <div class="nav-section-label">$-0��</div>
+    <nav class="nav-list">${modules.slice(10).map(navItem).join('')}<button class="nav-item" data-action="settings"><span class="nav-icon">${icon('settings')}</span><span>$-0�g�</span></button><button class="nav-item" data-action="logout"><span class="nav-icon">${icon('users')}</span><span>��Qy�0?/span></button></nav>
+    <div class="sidebar-footer"><div class="team-card"><div class="avatar">${escapeHtml((state.user?.name || '?').slice(0,2))}</div><div><strong>${escapeHtml(state.user?.name || '')}</strong><small>${escapeHtml(state.role || '')}</small></div></div></div>
+  </aside>${state.sidebarOpen ? '<button class="sidebar-scrim" data-action="menu" aria-label="O��5p�"></button>' : ''}`;
+}
+
+function navItem(m) {
+  const count = moduleCount(m.id, m.count);
+  return `<button class="nav-item ${state.active === m.id ? 'active' : ''}" data-nav="${m.id}" ${state.active === m.id ? 'aria-current="page"' : ''}><span class="nav-icon">${icon(m.icon)}</span><span>${m.label}</span>${count ? `<span class="count">${count}</span>` : ''}</button>`;
+}
+
+function topbar() {
+  return `<header class="topbar">
+      <button class="icon-button mobile-menu" data-action="menu" aria-label="${state.sidebarOpen ? '��c5p�' : '��5p�'}" aria-expanded="${state.sidebarOpen ? 'true' : 'false'}">${icon('menu')}</button>
+      <div class="crumb"><small>${escapeHtml(state.projectName)} / 0���5�</small><h1>${titleMap[state.active]}</h1></div>
+    <div class="topbar-actions">
+      <button class="search-trigger" data-action="global-search">${icon('search')}<span>�Ũ$-0Pm�</span><kbd>1?K</kbd></button>
+      <button class="icon-button notification-button" data-action="notification" aria-label="�1a">${icon('bell')}${state.notificationsRead ? '' : '<span class="notification-dot"></span>'}</button>
+      <button class="ghost-button" data-action="team">${icon('users')} e$�</button>
+      <button class="primary-button" data-action="ai-toggle">${icon('spark')} AI WΔ</button>
+    </div>
+  </header>`;
+}
+
+function renderAuth() {
+  const isRegister = state.authMode === 'register';
+  return `<div class="auth-shell"><div class="auth-card"><div class="brand-mark">��	</div><h1>${isRegister ? 'R��=�' : ''���	'}</h1><p class="muted">"����V40�=�ɮ��yGTl:M��a9�h,�O?/p>
+    ${state.authError ? `<div class="form-error">${escapeHtml(state.authError)}</div>` : ''}
+    <form class="form-grid" id="auth-form">
+      ${isRegister ? `<div class="field full"><label for="auth-name"></label><input id="auth-name" name="name" required /></div>` : ''}
+      <div class="field full"><label for="auth-email">���</label><input id="auth-email" name="email" type="email" required /></div>
+      <div class="field full"><label for="auth-password">5�</label><input id="auth-password" name="password" type="password" minlength="8" required /></div>
+      <div class="field full"><button class="primary-button" style="width:100%" type="submit">${isRegister ? '	%=' : ''�'}</button></div>
+    </form>
+    <button class="link-button" data-action="toggle-auth">${isRegister ? '��A�=���0? : 'A�=��^P?}</button>
+  </div></div>`;
+}
+
+function renderProjectPicker() {
+  return `<div class="auth-shell"><div class="auth-card wide"><div class="brand-mark">��	</div><h1>��$-0</h1><p class="muted">c��?{escapeHtml(state.user?.name || '')}</p>
+    <div class="project-list">${state.projects.map((p) => `<button class="project-row" data-action="open-project" data-id="${p.id}"><strong>${escapeHtml(p.name)}</strong><small>${escapeHtml(p.team?.name || '')} � ${p._count?.citations || 0} ��?/small></button>`).join('') || '<div class="empty-state"><p>i;��)?/p></div>'}</div>
+    <form class="form-grid" id="create-project-form" style="margin-top:18px">
+      <div class="field full"><label for="new-project-name">�$-0</label><input id="new-project-name" name="name" required placeholder="$-0Z�" /></div>
+      <div class="field full"><button class="primary-button" type="submit">R�$-0</button></div>
+    </form>
+    <div class="compose-actions" style="margin-top:12px"><button class="ghost-button" data-action="logout">��Qy�0?/button></div>
+  </div></div>`;
+}
+
+function app() {
+  if (state.boot === 'loading') {
+    document.getElementById('app').innerHTML = `<div class="auth-shell"><div class="auth-card"><p>�EjT�G%?/p></div></div>`;
+    return;
+  }
+  if (state.boot === 'auth') {
+    document.getElementById('app').innerHTML = renderAuth();
+    document.title = ''� � ��	';
+    document.getElementById('auth-form')?.addEventListener('submit', handleAuthSubmit);
+    document.querySelector('[data-action="toggle-auth"]')?.addEventListener('click', () => {
+      state.authMode = state.authMode === 'login' ? 'register' : 'login';
+      state.authError = '';
+      app();
+    });
+    return;
+  }
+  if (state.boot === 'picker') {
+    document.getElementById('app').innerHTML = renderProjectPicker();
+    document.title = '��$-0 � ��	';
+    document.getElementById('create-project-form')?.addEventListener('submit', handleCreateProject);
+    document.querySelectorAll('[data-action="open-project"]').forEach((el) => el.addEventListener('click', () => openProject(el.dataset.id)));
+    document.querySelector('[data-action="logout"]')?.addEventListener('click', handleLogout);
+    return;
+  }
+  document.getElementById('app').innerHTML = `<div class="app-shell ${state.sidebarOpen ? 'nav-open' : ''} ${state.aiOpen ? 'ai-open' : ''}">${sidebar()}<main class="workspace">${topbar()}${renderPage()}</main>${aiPanel()}</div>${modal()}`;
+  document.title = `${titleMap[state.active]} � ��	`;
+  bindEvents();
+  requestAnimationFrame(() => document.querySelector('[autofocus]')?.focus());
+}
+
+function header(eyebrow, title, subtitle, actions = '') {
+  return `<div class="page-header"><div><div class="eyebrow">${eyebrow}</div><h2>${title}</h2><p>${subtitle}</p></div>${actions ? `<div class="page-actions">${actions}</div>` : ''}</div>`;
+}
+
+function renderPage() {
+  const pages = { dashboard, protocol, searchPage, library, screening, fulltext, extraction, rob, adjudication, synthesis, audit };
+  return `<section class="page">${(pages[state.active] || dashboard)()}</section>`;
+}
+
+function dashboard() {
+  recomputeDerivedCounts();
+  const screeningRemaining = Math.max(0, state.citations.length - state.screeningCompleted);
+  const protocolReady = state.criteria.length > 0 && state.question;
+  const stats = [
+    ['�o�?, String(screeningRemaining), '�<0�?�÷�', 'alert', 'amber'],
+    ['���Zz', String(state.citations.length), 'ȅ��Ԕm�', 'library', 'blue'],
+    ['���h?, state.credentialId ? '�? : 'Z?, state.user?.email || '', 'spark', 'green'],
+    ['\؀P,J', String(state.adjudicationRemaining), '�p�P?, 'users', 'red'],
+  ];
+  const workflow = [
+    ['��', protocolReady ? '��(? : '�ml`?, protocolReady ? 'done' : '', 'protocol'],
+    ['���?, `${state.concepts.length} �E�G0, state.concepts.length ? 'done' : '', 'search'],
+    ['ۢ�?, screeningRemaining ? `S@� ${screeningRemaining}` : (state.citations.length ? '��l�? : 'ó�?), screeningRemaining ? 'active' : '', 'screening'],
+    ['�,G', `${state.extractionValues.filter((v)=>v.value).length} �N�ɚ, '', 'extraction'],
+    ['N�', state.citations.length ? 'YS�/�? : '�
+��HA', '', 'synthesis'],
+  ];
+  return `${header('Review control center',`c��?{escapeHtml(state.user?.name || '')}`,'����@N��0��$-0(�GTl�HA�?, `<button class="ghost-button" data-action="seed-demo">���U�HA</button><button class="ghost-button" data-action="export">${icon('download')} 5N�5�?/button><button class="primary-button" data-nav="screening">E;ۢ�?${icon('arrow')}</button>`)}
+    <div class="stats-grid">${stats.map(([label,value,meta,ic,c]) => `<article class="stat-card"><div class="stat-top"><span>${label}</span><span class="stat-icon badge ${c}">${icon(ic)}</span></div><div class="stat-value">${value}</div><div class="stat-meta"><span class="trend"><?/span>${meta}</div></article>`).join('')}</div>
+    <div class="grid-2">
+      <section class="panel"><div class="panel-head"><div><h3>p*i��</h3><p>ip,0��$-0*��5�?/p></div></div><div class="panel-body"><div class="workflow">
+        ${workflow.map((x,i)=>`<div class="workflow-step ${x[2]}" data-nav="${x[3]}"><div class="step-dot">${x[2]==='done'?icon('check',13):i+1}</div><strong>${x[0]}</strong><small>${x[1]}</small></div>`).join('')}
+      </div></div></section>
+      <section class="panel"><div class="panel-head"><div><h3>�37ȅ�</h3><p>"&�wD, API Key � OpenAI ON�� NVIDIA?/p></div><button class="link-button" data-action="settings">���</button></div><div class="panel-body"><p class="muted" style="font-size:12px;line-height:1.6">0��Q_A?{state.credentialId ? escapeHtml(state.credentials.find((c)=>c.id===state.credentialId)?.name || state.credentialId) : '�H�?}�������f&GTlT�:M�?/p></div></section>
+    </div>
+    <div class="grid-2">
+      <section class="panel"><div class="panel-head"><div><h3>ǬUw���</h3><p>�
+�S��RC��?/p></div><button class="link-button" data-nav="screening">��Eۢ�?/button></div><div class="panel-body task-list">
+        ${taskRow('alert','amber','�<0�?�R��','O-m�*&\�R��(�0?,screeningRemaining,'screening')}
+        ${taskRow('users','red','\؀P,JAx�','\��?AI R�Ǔ��w?,state.adjudicationRemaining,'adjudication')}
+        ${taskRow('file','blue','O&��m)?,'�,�O�~O&��H�',state.fulltextRemaining,'fulltext')}
+        ${taskRow('history','green','9�x��','ȅ��7c��i?,state.audits.length,'audit')}
+      </div></section>
+      <section class="panel"><div class="panel-head"><div><h3>Ȭi?T?/h3><p>�� AuditEvent</p></div><button class="link-button" data-nav="audit">9~���T</button></div><div class="panel-body activity-list">
+        ${(state.audits.slice(0,4).map((e)=>activity((e.actor||'?').slice(0,2), e.action, e.detail, e.time)).join('')) || '<p class="muted">ƛ�9�x\)"���,��5N�Z�0wD�PƆ?/p>'}
+      </div></section>
+    </div>`;
+}
+
+function taskRow(ic,color,title,desc,count,nav) { return `<div class="task-row" data-nav="${nav}"><div class="task-symbol badge ${color}">${icon(ic)}</div><div class="task-copy"><strong>${title}</strong><span>${desc}</span></div><div class="task-count">${count}</div>${icon('chevron')}</div>`; }
+function activity(initial,text,detail,time) { return `<div class="activity"><div class="activity-avatar">${initial}</div><div><p>${text}</p><small>${detail}</small></div><time>${time}</time></div>`; }
+
+function protocol() {
+  const versionLabel = state.protocolVersion ? `Protocol v${state.protocolVersion}` : 'Protocol';
+  return `${header(versionLabel,'.���}���O�Ć#Q?,'��o��ȅ��?ProtocolVersion��h�p�|,����p��SO�x���?, `<button class="ghost-button" data-action="history">${icon('history')} pX�v</button><button class="primary-button" data-action="add-criterion">${icon('plus')} #����o</button>`)}
+    <div class="grid-2" style="margin-top:16px"><section class="panel"><div class="panel-head"><div><h3>.���}</h3><p>0��$-0�Z��?/p></div><button class="icon-button" data-action="edit-question" aria-label=",�.���}">${icon('edit')}</button></div><div class="panel-body"><div class="eyebrow">Primary question</div><div style="font: 20px/1.55 Georgia,serif">${escapeHtml(state.question || 'O-mɢS.���}')}</div></div></section>
+    <section class="panel"><div class="panel-head"><div><h3>��5�?/h3><p>`�GTl�HA��o</p></div><span class="badge ${state.criteria.length?'green':'amber'}">${state.criteria.length?'��?:'�ml`?}</span></div><div class="panel-body"><div class="validation-score"><div class="score-ring"><strong>${state.criteria.length}</strong></div><div><p><strong>${state.criteria.length} ��O�Ć#Q?/strong></p><small>${state.question?'.���}��^P?:'��ɢS.���}'}</small></div></div></div></section></div>
+    <div class="section-stack">${state.criteria.length ? state.criteria.map(criterionCard).join('') : `<div class="empty-state">${icon('question')}<h3>i;���O�Ć#Q?/h3><p>p�%�JT�#QϬ��&""��x�(������SO��+ߗ�?/p></div>`}</div>`;
+}
+
+function criterionCard({ id,title,en,include,exclude }) { return `<article class="editor-card"><div class="editor-title"><div class="criterion-id">${escapeHtml(id)}</div><div><strong>${escapeHtml(title)}</strong><small>${escapeHtml(en)}</small></div><button class="icon-button edit" data-action="edit-criterion" data-id="${escapeHtml(id)}" aria-label=",� ${escapeHtml(id)}">${icon('edit')}</button></div><div class="criteria-columns"><div class="criteria-col"><h4>�����o</h4>${include.map((x,i)=>`<div class="criterion-line">${icon('check')}<span><b>${escapeHtml(id)}${i+1}</b> � ${escapeHtml(x)}</span></div>`).join('')}</div><div class="criteria-col"><h4>�����o</h4>${exclude.map((x,i)=>`<div class="criterion-line exclude">${icon('x')}<span><b>${escapeHtml(id)}${i+include.length+1}</b> � ${escapeHtml(x)}</span></div>`).join('')}</div></div></article>`; }
+
+function searchPage() {
+  const query = state.concepts.map(concept => {
+    const terms = [...concept.controlled.map(term => `"${term.replace(/\s*\[MeSH\]$/i, '')}"[Mesh]`), ...concept.free.map(term => `"${term}"[tiab]`)];
+    return `(${terms.join(' OR ')})`;
+  }).join('\nAND\n');
+  const termCount = state.concepts.reduce((sum, concept) => sum + concept.controlled.length + concept.free.length, 0);
+  return `${header('Search strategy builder','��YY�z����"�#?,'Қ���s�]Z:j0����V41,'Z����� !Y2R��Z쟹�1�F�?, `<button class="ghost-button" data-action="import-search">${icon('upload')} 5N��+�</button><button class="primary-button" data-action="copy-query">${icon('copy')} ��׫�� !</button>`)}
+    <div class="grid-2"><section class="panel"><div class="panel-head"><div><h3>Қ�����#</h3><p>${state.concepts.length} �E�G?� ${termCount} �Es�?/p></div><button class="soft-button" data-action="add-concept">${icon('plus')} ��Қ�</button></div><div class="panel-body concept-list">${state.concepts.map(conceptCard).join('') || `<div class="empty-state"><p>i;����!�G?/p></div>`}<div class="logic-box">${state.concepts.map((concept,index)=>`${index?'<span class="operator">AND</span>':''}<span class="logic-node">${escapeHtml(concept.title)}</span>`).join('')}</div></div></section>
+    <section class="section-stack"><div class="panel"><div class="panel-head"><div><h3>`�	�X�</h3><p>*��U�.Z</p></div></div><div class="panel-body"><p class="muted" style="font-size:12px;line-height:1.6">f%;�&���1�F��� ��d]%����?PRESS mwG�?p$[g���Қ���,'�I|	|H���3C�?/p><div class="criterion-line">${icon('check')} Y*H�GxwFq�?/div><div class="criterion-line">${icon('check')} Y*�?PubMed / Embase ��	?/div><div class="criterion-line">${icon('check')} Y2R5�� !R;�&���1�F</div></div></div></section></div>
+    <section class="panel"><div class="panel-head"><div><h3>�HA4��	?/h3><p>`����'ZwD�,'</p></div><div class="tabs">${['PubMed','Embase','Web of Science','CENTRAL'].map(x=>`<button class="tab ${state.db===x?'active':''}" data-db="${x}" aria-pressed="${state.db===x}">${x}</button>`).join('')}</div></div><div class="panel-body"><pre class="code-box">${escapeHtml(state.db==='PubMed'?query:`${state.db} �_v��t���S��G[X"����n\n${query.replaceAll('[tiab]', state.db==='Embase'?':ti,ab':'').replaceAll('[Mesh]','')}`)}</pre></div></section>`;
+}
+
+function conceptCard({ id,index,title,controlled,free }) { return `<article class="concept-card"><div class="concept-head"><span class="concept-index">${escapeHtml(index)}</span><strong>${escapeHtml(title)}</strong><button class="icon-button" style="margin-left:auto;width:29px;height:29px" data-action="concept-more" data-id="${escapeHtml(id)}" aria-label="Қ����">${icon('more')}</button></div><div class="concept-body">${controlled.length?`<div class="term-group"><label>YA6�?/label><div class="chips">${controlled.map(x=>`<span class="chip controlled">${escapeHtml(x)}<span class="source">MeSH</span></span>`).join('')}</div></div>`:''}<div class="term-group"><label>wFq��Y9�</label><div class="chips">${free.map((x,i)=>`<span class="chip">${escapeHtml(x)}<button data-action="remove-term" data-id="${escapeHtml(id)}" data-index="${i}" aria-label="�Z� ${escapeHtml(x)}">3</button></span>`).join('')}<button class="chip" data-action="add-term" data-id="${escapeHtml(id)}">${icon('plus',11)} #��</button></div></div></div></article>`; }
+
+function library() {
+  const rows = state.citations.filter(row => matchesQuery([row.title,row.authors,row.doi], state.libraryQuery))
+    .filter(row => state.librarySource === 'O)4��.' || row.source === state.librarySource)
+    .filter(row => state.libraryFullText === 'O)4O&�5�? || (state.libraryFullText === '�6OY? ? row.fullText === 'Full text' : row.fullText === 'Missing'));
+  const sources = [...new Set(state.citations.map(row => row.source))];
+  const fullTextCount = state.citations.filter(row => row.fullText === 'Full text').length;
+  return `${header('Citation library','�����"���O&�','�Ȁ����.�x�O����xS������O&�~�G5��`�vwD�"�� PRISMA 4z��?, `<button class="ghost-button" data-action="dedupe">${icon('layers')} i/XZx</button><button class="primary-button" data-action="import">${icon('upload')} 5N���</button>`)}
+  <div class="stats-grid">${[['���Zz',state.citations.length],['0���I',rows.length],['���q���?,fullTextCount],['�pOY'��?,state.citations.filter(row=>row.fullText==='Missing').length]].map((x,i)=>`<div class="stat-card"><div class="stat-top">${x[0]}<span class="badge ${i===3?'amber':'gray'}">${['ȅ��?,'ۢ�
+�','Ys`?,'Ǭ��'][i]}</span></div><div class="stat-value">${x[1]}</div></div>`).join('')}</div>
+  <section class="panel"><div class="panel-head"><div><h3>O)4��</h3><p>${rows.length} �3�S��0?/p></div><span class="badge green">ȅ������</span></div><div class="panel-body"><div class="toolbar"><label class="filter-input">${icon('search')}<input data-filter="library-query" value="${escapeHtml(state.libraryQuery)}" placeholder="�})��w�pk�OI �Ũ" aria-label="�Ũ��" /></label><select class="select" data-filter="library-source" aria-label="�ug.�?>${['O)4��.',...sources].map(value=>`<option ${state.librarySource===value?'selected':''}>${escapeHtml(value)}</option>`).join('')}</select><select class="select" data-filter="library-fulltext" aria-label="�
+�����z�?>${['O)4O&�5�?,'�6OY?,'�Q'].map(value=>`<option ${state.libraryFullText===value?'selected':''}>${value}</option>`).join('')}</select><span class="spacer"></span><button class="ghost-button" data-action="export-library">${icon('download')} 5N�</button></div></div><div class="table-wrap"><table><thead><tr><th>��</th><th>�&���.</th><th>�HA4��?/th><th>O&�</th><th>9~�4?/th><th></th></tr></thead><tbody>${rows.length ? rows.map(r=>`<tr><td class="title-cell"><strong>${escapeHtml(r.title)}</strong><small>${escapeHtml(r.authors)}${r.doi?` � DOI ${escapeHtml(r.doi)}`:''}</small></td><td><span class="source-pill">${escapeHtml(r.source)}</span></td><td>${r.hits}</td><td><span class="badge ${r.fullText==='Missing'?'amber':'green'}">${escapeHtml(r.fullText)}</span></td><td class="progress-cell"><div class="progress-track"><span style="width:${Number(r.completeness)||0}%"></span></div></td><td><button class="icon-button" data-action="citation-more" data-id="${escapeHtml(r.id)}" aria-label="�����">${icon('more')}</button></td></tr>`).join('') : `<tr><td colspan="6"><div class="empty-state">${icon('search')}<p>A�@�0��ۢ�o`A���</p></div></td></tr>`}</tbody></table></div></section>`;
+}
+
+function screening() {
+  if (state.screenMode === 'batch') return batchScreening();
+  const c = currentScreenCase();
+  const highlighted = c.evidence && c.abstract.includes(c.evidence)
+    ? c.abstract.replace(c.evidence, `<mark class="evidence-highlight">${escapeHtml(c.evidence)}</mark>`)
+    : escapeHtml(c.abstract);
+  const remaining = moduleCount('screening');
+  const criteriaRail = state.criteria.length
+    ? state.criteria.slice(0, 6).map((item) => `<div class="rail-item"><div class="criterion-id">${escapeHtml(item.id)}</div><span>${escapeHtml(item.title)}</span></div>`).join('')
+    : '<p class="muted" style="font-size:11px">��f&ߗ%	��������o</p>';
+  return `${header('Title and abstract screening','�<0���Ux��?,')�v�3!,��*&\�R������h*����ӗ�0*�� AI �5n)B�?, `<div class="tabs"><button class="tab active" data-screen-mode="single">W��3!</button><button class="tab" data-screen-mode="batch">�Rz�3!</button></div>`)}
+  <div class="screen-layout"><article class="citation-card"><div class="citation-meta"><span>Record ${state.screeningIndex + 1}/${Math.max((state.screeningQueue.length || state.citations.length), 1)}</span><span>${escapeHtml(c.authors)}</span><span>${escapeHtml(c.journal)}</span><span class="badge blue">${state.decision ? (c.ai ? 'AI ��n)? : '`lI�?) : 'Blind mode'}</span></div><div class="citation-main"><h3>${escapeHtml(c.title)}</h3><p>${highlighted}</p></div><div class="decision-bar"><div><div class="decision-group"><button class="decision-button include ${state.decision==='Include'?'selected':''}" data-decision="Include" aria-pressed="${state.decision==='Include'}" ${state.decision||!c.id?'disabled':''}>${icon('check')} ���</button><button class="decision-button exclude ${state.decision==='Exclude'?'selected':''}" data-decision="Exclude" aria-pressed="${state.decision==='Exclude'}" ${state.decision||!c.id?'disabled':''}>${icon('x')} ���</button><button class="decision-button uncertain ${state.decision==='Uncertain'?'selected':''}" data-decision="Uncertain" aria-pressed="${state.decision==='Uncertain'}" ${state.decision||!c.id?'disabled':''}>${icon('alert')} �m~</button></div><div class="keyboard-hints" style="margin-top:8px"><span><kbd>1</kbd> ���</span><span><kbd>2</kbd> ���</span><span><kbd>3</kbd> �m~</span></div></div><div class="case-position">S@� ${remaining} �?/div></div></article>
+  <aside class="criteria-rail"><div class="rail-card"><h4>����o</h4>${criteriaRail}</div><div class="rail-card"><h4>0���䔯3!</h4><p class="muted" style="font-size:9px;line-height:1.5">\�R��P� ScreeningDecision�������|3�"'a9�h*���� ModelRun�?/p></div></aside></div>`;
+}
+
+function batchScreening() {
+  const cases = (state.screeningQueue.length ? state.screeningQueue : state.citations).map((item) => {
+    const ai = item.raw?.decisions?.find((d) => d.actor === 'ai');
+    const human = item.raw?.decisions?.find((d) => d.actor === 'human');
+    return {
+      id: item.id,
+      title: item.title,
+      authors: item.authors,
+      ai: ai?.decision || '%?,
+      confidence: ai?.confidence || '%?,
+      criterion: (ai?.criterionIds || []).join(' � ') || '%?,
+      human: human?.decision || '',
+    };
+  });
+  return `${header('Title and abstract screening','�Rzۢ�?,'RD��ȅ����RK1YҲ�A\�I���\�?, `<div class="tabs"><button class="tab" data-screen-mode="single">W��3!</button><button class="tab active" data-screen-mode="batch">�Rz�3!</button></div>`)}<section class="panel"><div class="panel-body"><div class="toolbar"><span class="muted">��� ${state.selectedBatch.length} �?/span><span class="spacer"></span><button class="ghost-button" data-action="batch-confirm" ${state.selectedBatch.length?'':'disabled'}>�Rz��{</button></div></div><div class="table-wrap"><table><thead><tr><th><input type="checkbox" data-batch-all aria-label="O)�?></th><th>��</th><th>AI R��</th><th>���*�</th><th>O�m��o</th><th>\�R��</th></tr></thead><tbody>${cases.length ? cases.map((c,i)=>`<tr><td><input type="checkbox" data-batch-select="${c.id}" aria-label="���" ${state.selectedBatch.includes(String(c.id))?'checked':''}></td><td class="title-cell"><strong>${escapeHtml(c.title)}</strong><small>${escapeHtml(c.authors)}</small></td><td><span class="badge ${c.ai==='Include'?'green':c.ai==='Exclude'?'red':c.ai==='Uncertain'?'amber':'gray'}">${escapeHtml(c.ai)}</span></td><td>${escapeHtml(c.confidence)}</td><td>${escapeHtml(c.criterion)}</td><td><select class="select" data-batch-decision="${c.id}" aria-label="\�R��"><option value="">�m)?/option>${[['Include','���'],['Exclude','���'],['Uncertain','�m~']].map(([value,label])=>`<option value="${value}" ${state.batchDecisions[c.id]===value?'selected':''}>${label}</option>`).join('')}</select></td></tr>`).join('') : `<tr><td colspan="6"><div class="empty-state"><p>ƛ������O�O樲��U�HA�?/p></div></td></tr>`}</tbody></table></div></section>`;
+}
+
+function fulltext() {
+  const included = includedForFulltext();
+  const citation = included[state.fulltextIndex || 0] || included[0];
+  if (!citation) {
+    return `${header('Full text screening','O&��yA�?�','`mM�*})��Uz�	Q�,�O瑁��?)}<div class="empty-state">${icon('file')}<h3>ƛ�,�O�?/h3><p>��f%�ۗQ���.�}@e�uK,���s5�?/p><button class="primary-button" data-nav="screening">X��?/button></div>`;
+  }
+  const criteriaRows = state.criteria.length
+    ? state.criteria.map((item) => `<button class="eligibility-row" data-action="jump-evidence"><header><span class="status-symbol warn">?</span><strong>${escapeHtml(item.id)} � ${escapeHtml(item.title)}</strong></header><p>${escapeHtml(item.include[0] || '5-�����o�?�X��')}</p></button>`).join('')
+    : '<p class="muted">�𛰇�����o</p>';
+  return `${header('Full text screening','O&��yA�?�','0��c�dȅ�����Uw��?	��.xDF %pYF=`�Z�;s�φ?, `<button class="ghost-button" data-action="run-fulltext-ai" ${state.credentialId && citation?.id ? '' : 'disabled'}>${icon('spark')} AI �?�</button><button class="ghost-button" data-action="next-fulltext">�)��?/button><button class="primary-button" data-action="fulltext-decision" ${state.fulltextDecision?'':'disabled'}>�*&R��</button>`)}${state.fulltextDecision?`<div class="status-banner">0��R��?strong>${escapeHtml(state.fulltextDecision)}</strong> � O�SO�GTlȬ#�P?/div>`:''}<div class="pdf-layout"><div class="pdf-viewer"><article class="pdf-page"><div style="color:#777;font-size:9px">${escapeHtml(citation.source || 'Citation')} � Abstract</div><h2>${escapeHtml(citation.title)}</h2><p><b>${escapeHtml(citation.authors)}</b></p><h3>Abstract</h3><p class="marked">${escapeHtml(citation.abstract || citation.raw?.abstract || 'ó�U?)}</p></article></div><aside class="eligibility-card"><div class="panel-head"><div><h3>Eligibility</h3><p>${state.criteria.length} $�#Q?/p></div></div>${criteriaRows}<div style="padding:14px"><div class="decision-group"><button class="decision-button include ${state.fulltextDecision==='Include'?'selected':''}" data-action="full-include">���</button><button class="decision-button exclude ${state.fulltextDecision?.startsWith('Exclude')?'selected':''}" data-action="full-exclude">���</button></div></div></aside></div>`;
+}
+
+const extractionGroupLabels = { characteristics: '.�p�', outcomes: '�,', collaboration: 'WΔ��#' };
+const extractionTypeLabels = { text: '��p', number: '��?, boolean: '�?Z?, select: 'W�?, date: '��a' };
+
+function extractionValue(citationId, fieldId) {
+  return state.extractionValues.find((item) => item.citationId === citationId && item.fieldId === fieldId);
+}
+
+function extractionFieldManager() {
+  return `<section class="panel field-manager"><div class="panel-head"><div><h3>A���</h3><p>A����f))����1�hRʴ-x�n�0ޗ`�0�Ȁ�?/p></div><button class="primary-button" data-action="add-extraction-field">${icon('plus')} �A�</button></div><div class="field-manager-list">${state.extractionFields.map((field) => `<article class="field-manager-row"><div class="field-type-icon">${icon(field.dataType === 'number' ? 'chart' : field.dataType === 'boolean' ? 'check' : 'table')}</div><div class="field-manager-main"><div><strong>${escapeHtml(field.label)}</strong>${field.required ? '<span class="badge red">Gm^</span>' : ''}<span class="badge gray">${escapeHtml(extractionGroupLabels[field.group] || field.group)}</span></div><code>${escapeHtml(field.key)}</code><p>${escapeHtml(field.description || 'ƛ�A��X�')}</p></div><div class="field-manager-meta"><span>${escapeHtml(extractionTypeLabels[field.dataType] || field.dataType)}</span><small>R�p�0${escapeHtml(field.creator?.name || '�d�')}</small></div><div class="field-manager-actions"><button class="icon-button" data-action="edit-extraction-field" data-id="${field.id}" aria-label=",� ${escapeHtml(field.label)}">${icon('edit')}</button><button class="icon-button danger" data-action="archive-extraction-field" data-id="${field.id}" aria-label="0� ${escapeHtml(field.label)}">${icon('x')}</button></div></article>`).join('') || `<div class="empty-state">${icon('table')}<h3>i;��AY'�?/h3><p>R�����D�[�W�r��,����,G�?/p></div>`}</div></section>`;
+}
+
+function extractionDataTable() {
+  const fields = state.extractionFields.filter((field) => field.group === state.extractionTab);
+  const studies = state.citations.slice(0, 50);
+  return `<section class="panel"><div class="panel-head"><div><h3>${extractionGroupLabels[state.extractionTab]}</h3><p>p�Wޓ�N^P�:�x+��	�����.c��</p></div><div class="tabs">${Object.entries(extractionGroupLabels).map(([id,label])=>`<button class="tab ${state.extractionTab===id?'active':''}" data-extraction-tab="${id}">${label}</button>`).join('')}</div></div>${fields.length ? `<div class="table-wrap"><table class="sheet"><thead><tr><th class="study-col">Study</th>${fields.map((field)=>`<th>${escapeHtml(field.label)}${field.required?' *':''}</th>`).join('')}</tr></thead><tbody>${studies.map((citation)=>`<tr><td class="study-col"><strong>${escapeHtml(citation.title)}</strong><small>${escapeHtml(citation.authors)}</small></td>${fields.map((field)=>{const saved=extractionValue(citation.id,field.id);return `<td><button class="data-cell extraction-cell ${saved?.verified?'is-verified':''}" data-action="edit-extraction-value" data-citation-id="${citation.id}" data-field-id="${field.id}"><span>${escapeHtml(saved?.value || '�nAY?)}</span>${saved?.evidenceText?'<small>�
++��	�?/small>':''}${saved?.verified?'<span class="verified">A?��s`?/span>':''}</button></td>`;}).join('')}</tr>`).join('') || `<tr><td colspan="${fields.length+1}"><div class="empty-state"><p>O-�YAY+:�?/p></div></td></tr>`}</tbody></table></div><div class="sheet-footer"><span>${studies.length} studies � ${fields.length} �D�?/span><span>ȅ���T$Z?/span></div>` : `<div class="empty-state">${icon('table')}<h3>i�Rٍi;��
+�?/h3><p>S��A���R�ǬUyAY+�Pm��?/p><button class="primary-button" data-action="add-extraction-field">�A�</button></div>`}</section>`;
+}
+
+function extraction() {
+  const completed = state.extractionValues.filter((value) => value.value).length;
+  const verified = state.extractionValues.filter((value) => value.verified).length;
+  return `${header('Structured data extraction','�/V(���AY?,'wD~�
+�x0���f%�S�)�1��ܻ,GJxXY�9,+��	����Y5�u�?, `<button class="ghost-button" data-action="run-extract-ai" ${state.credentialId && state.citations[0] ? '' : 'disabled'}>${icon('spark')} AI ��^�,</button><button class="primary-button" data-action="export-csv">${icon('download')} 5N� CSV</button>`)}
+  <div class="module-switch"><button class="${state.extractionView==='data'?'active':''}" data-extraction-view="data">${icon('table')} �,G�HA</button><button class="${state.extractionView==='fields'?'active':''}" data-extraction-view="fields">${icon('settings')} A��� <span>${state.extractionFields.length}</span></button></div>
+  <div class="stats-grid">${[['$-0A�',state.extractionFields.length],['��^PO�x',completed],['�mI��s`?,verified],['�ns`?,Math.max(0,completed-verified)]].map((x,i)=>`<div class="stat-card"><div class="stat-top">${x[0]}<span class="badge ${i===3?'amber':'green'}">${['�w�V?,'J?,'�yA','Wޓ�?][i]}</span></div><div class="stat-value">${x[1]}</div></div>`).join('')}</div>
+  ${state.extractionView === 'fields' ? extractionFieldManager() : extractionDataTable()}`;
+}
+
+function robQuestionContext() {
+  const domain = state.robDomains.find((item) => item.questions.some((question) => question.key === state.robQuestionKey)) || state.robDomains[0];
+  const question = domain?.questions.find((item) => item.key === state.robQuestionKey) || domain?.questions?.[0];
+  return { domain, question };
+}
+
+function robJudgement(questionKey, actor) {
+  return state.robJudgements.find((item) => item.questionKey === questionKey && item.actor === actor);
+}
+
+function sourceSentences(text) {
+  return (String(text || '').match(/[^.!?��+[.!?��?/g) || []).map((sentence) => sentence.trim()).filter(Boolean);
+}
+
+function rob() {
+  const citation = state.robCitations.find((item) => item.id === state.robCitationId) || state.robCitations[0];
+  const { domain: activeDomain, question: activeQuestion } = robQuestionContext();
+  if (!citation || !activeDomain || !activeQuestion) return `${header('Risk of bias','KӬ6��D`?,'�-oR�ǞA�9,r�Y(�+��	���?)}<div class="empty-state">${icon('shield')}<h3>ƛ�Y`�:�?/h3><p>��5N�VmȽ?�'������?/p></div>`;
+  const human = robJudgement(activeQuestion.key, 'human');
+  const ai = robJudgement(activeQuestion.key, 'ai');
+  const activeEvidence = state.robEvidenceDraft || human?.evidenceText || ai?.evidenceText || '';
+  const sentences = sourceSentences(citation.abstract);
+  const disagreementCount = state.robDomains.flatMap((item) => item.questions).filter((question) => {
+    const h = robJudgement(question.key, 'human'); const a = robJudgement(question.key, 'ai'); return h && a && h.judgement !== a.judgement;
+  }).length;
+  const questionCards = state.robDomains.map((domain) => `<section class="rob-domain-card"><header><span class="criterion-id">${domain.key}</span><div><strong>${escapeHtml(domain.title)}</strong><small>${domain.questions.filter((question)=>robJudgement(question.key,'human')).length}/${domain.questions.length} ��l�*I���?/small></div></header>${domain.questions.map((question) => { const h=robJudgement(question.key,'human'); const a=robJudgement(question.key,'ai'); return `<button class="rob-question ${question.key===activeQuestion.key?'active':''}" data-action="select-rob-question" data-domain="${domain.key}" data-question="${question.key}"><span><b>${question.key}</b>${escapeHtml(question.text)}</span><span class="rob-question-status">${h?`<em class="badge ${h.judgement==='Low risk'?'green':h.judgement==='High risk'?'red':'amber'}">\� ${escapeHtml(h.judgement)}</em>`:'<em class="badge gray">�m��?/em>'}${a?`<em class="badge purple">AI ${escapeHtml(a.judgement)}</em>`:''}</span></button>`; }).join('')}</section>`).join('');
+  return `${header('Risk of bias','KӬ6��D`?,'M�����	����-o�?�-!�?signaling question �Z:��\�z�"^�Y~c��X���yA�?, `<button class="ghost-button" data-action="rob-guide">RoB 2 ��!</button><button class="primary-button" data-action="next-study">�)�$-:�?${icon('arrow')}</button>`)}
+  <div class="rob-study-toolbar"><label><span>0��.�</span><select class="select" data-rob-citation>${state.robCitations.map((item)=>`<option value="${item.id}" ${item.id===citation.id?'selected':''}>${escapeHtml(item.title)}</option>`).join('')}</select></label><div><span class="badge green">${state.robJudgements.filter((item)=>item.actor==='human').length} $I���?/span><span class="badge ${disagreementCount?'red':'gray'}">${disagreementCount} $I�Ď�?/span></div></div>
+  <div class="rob-review-layout"><section class="rob-source-panel"><div class="panel-head"><div><h3>X���yA</h3><p>${escapeHtml(citation.authors || '')}${citation.year?` � ${escapeHtml(citation.year)}`:''}</p></div><span class="badge blue">Abstract</span></div><article class="rob-source-document"><h2>${escapeHtml(citation.title)}</h2><p class="source-help">p�`��Y�+��O�`~R�S��J,��\���~�yA|6�\�	�R�?/p><div class="source-sentences">${sentences.length ? sentences.map((sentence)=>`<button class="source-sentence ${sentence===activeEvidence?'selected':''}" data-action="rob-use-evidence" data-evidence="${escapeHtml(sentence)}">${sentence===activeEvidence?'<mark>':''}${escapeHtml(sentence)}${sentence===activeEvidence?'</mark>':''}</button>`).join('') : '<div class="empty-state"><p>��0���
+r"&�Uu����O&�Z�@cý�\�?/p></div>'}</div></article></section>
+  <aside class="rob-assessment-panel"><div class="rob-question-list">${questionCards}</div><section class="rob-editor"><div class="rob-editor-head"><div><span class="criterion-id">${activeQuestion.key}</span><h3>${escapeHtml(activeQuestion.text)}</h3></div></div><div class="rob-evidence-box ${activeEvidence?'has-evidence':''}"><strong>${activeEvidence?'�,�9,+�?:'O-m~X��'}</strong><p>${escapeHtml(activeEvidence || '��j�?vp�s�D��0��R��(�+��^)�?)}</p><small>${escapeHtml(human?.sourceLocation || ai?.sourceLocation || 'Abstract')}</small></div><div class="form-grid rob-form"><div class="field"><label for="rob-answer">�3��}e��</label><select id="rob-answer" name="rob-answer">${['Yes','Probably yes','Probably no','No','No information'].map((value)=>`<option ${value===(human?.answer||'No information')?'selected':''}>${value}</option>`).join('')}</select></div><div class="field"><label for="rob-judgement">��YR��</label><select id="rob-judgement" name="rob-judgement">${['Low risk','Some concerns','High risk'].map((value)=>`<option ${value===(human?.judgement||'Some concerns')?'selected':''}>${value}</option>`).join('')}</select></div><div class="field full"><label for="rob-rationale">R���q</label><textarea id="rob-rationale" name="rob-rationale" placeholder="�X�X��ᙍ��R��">${escapeHtml(human?.rationale || '')}</textarea></div></div>${ai?`<div class="ai-rob-suggestion"><div><span class="badge purple">AI Hm�</span><strong>${escapeHtml(ai.answer)} � ${escapeHtml(ai.judgement)}</strong></div><p>${escapeHtml(ai.rationale || '')}</p><button class="link-button" data-action="show-ai-rob-evidence">��E AI ��dX��</button></div>`:''}<div class="rob-editor-actions"><button class="ghost-button" data-action="run-rob-ai" ${state.robBusy?'disabled':''}>${icon('spark')} ${state.robBusy?'AI R�=�[�?:'AI Hm�R��'}</button><button class="primary-button" data-action="save-rob" ${activeEvidence?'':'disabled'}>${icon('check')} ���\�R��</button></div>${!state.credentialId?'<p class="rob-credential-note">AI R��ǬUx�f"��)�����Q��37Q_A�?/p>':''}</section></aside></div>`;
+}
+
+function adjudication() {
+  recomputeDerivedCounts();
+  const conflicts = screeningConflicts();
+  const current = conflicts[state.adjudicationIndex || 0];
+  if (!current) {
+    return `${header('Adjudication center','P,JAx��^>','`mM�pI�� AI R�Ǔ��w��*�����?)}<div class="empty-state">${icon('users')}<h3>0��A\؀P,J</h3><p>9~�R���"'a9?AI Z�{�;�p��]	��w�|,�jiw�?/p><button class="primary-button" data-nav="screening">X��?/button></div>`;
+  }
+  const { citation, human, ai } = current;
+  const criteriaBlock = state.criteria.slice(0, 4).map((item) => `<div class="criterion-line">${icon('check')}<span><b>${escapeHtml(item.id)}</b> � ${escapeHtml(item.title)}</span></div>`).join('') || '<p class="muted">óߗ#Q?/p>';
+  return `${header('Adjudication center','P,JAx��^>','�5��E\��?AI (�a9���h1Ax�P�9�x�?, `<button class="ghost-button" data-action="skip">�)��?/button><button class="primary-button" data-action="next-conflict">�)��D�?${icon('arrow')}</button>`)}<section class="panel"><div class="panel-head"><div><h3>Conflict � Title/abstract</h3><p>${escapeHtml(citation.title)}</p></div><span class="badge red">${conflicts.length} �m)?/span></div><div class="panel-body"><div class="compare-grid">
+    ${reviewer((state.user?.name||'H').slice(0,2),'Human',human.decision,human.rationale||'\��R��',human.evidence||citation.abstract?.slice(0,160)||'','green')}
+    ${reviewer('AI','Qiuzheng AI',ai.decision,ai.rationale||'�37H��',ai.evidence||'','purple')}
+  </div><div class="resolve-box"><div><strong>Ȭ#�P?/strong><div class="muted" style="font-size:9px;margin-top:3px">O�SO�x��GK�Ad\��_��麁��?/div></div><div class="decision-group"><button class="decision-button include ${state.adjudicationResolution==='Include'?'selected':''}" data-resolution="Include" ${state.adjudicationResolution?'disabled':''}>���</button><button class="decision-button exclude ${state.adjudicationResolution==='Exclude'?'selected':''}" data-resolution="Exclude" ${state.adjudicationResolution?'disabled':''}>���</button><button class="decision-button uncertain ${state.adjudicationResolution==='Uncertain'?'selected':''}" data-resolution="Uncertain" ${state.adjudicationResolution?'disabled':''}>�m~</button></div></div></div></section>
+  <div class="grid-equal" style="margin-top:16px"><section class="panel"><div class="panel-head"><h3>)?�����o</h3></div><div class="panel-body">${criteriaBlock}</div></section><section class="panel"><div class="panel-head"><h3>�)��y�Y?/h3><span class="badge green">${conflicts.length} remaining</span></div><div class="panel-body"><div class="stats-grid" style="grid-template-columns:repeat(2,1fr);margin:0"><div><b>${state.citations.length}</b><small class="muted" style="display:block">���Zz</small></div><div><b>${conflicts.length}</b><small class="muted" style="display:block">0��P,J</small></div></div></div></section></div>`;
+}
+
+function synthesis() {
+  recomputeDerivedCounts();
+  const screened = state.screeningCompleted;
+  const extracted = state.extractionValues.filter((v) => v.value).length;
+  const verified = state.extractionValues.filter((v) => v.verified).length;
+  const robDone = state.robJudgements.filter((item) => item.actor === 'human').length;
+  const readiness = Math.min(100, Math.round(
+    (state.citations.length ? 20 : 0)
+    + (screened ? 25 : 0)
+    + (extracted ? 25 : 0)
+    + (robDone ? 15 : 0)
+    + (state.audits.length ? 15 : 0),
+  ));
+  const reports = [
+    ['report','PRISMA }�','ip,0��5NƓ��x�?],
+    ['search','���"�#�0?,'5N�0��Қ�,'�I'],
+    ['table','.�p�?,'�蜻,GA����ɢ�?],
+    ['shield','KӬ6��C��?,'�蜸mZ<� RoB R��'],
+    ['chart','ۢ�9�?,'\�/AI P��'],
+    ['users','\؀P,Jm','0��R� ÷�'],
+  ];
+  return `${header('Synthesis and reporting','�yAN����[?,'O�N4=�0��$-09~��m�|n{�?)}<div class="report-hero"><div><h2>��O�N4?${readiness}%</h2><p>�� ${state.citations.length} � �,� ${screened} � �,GWޓ�?${extracted} � RoB \�R�� ${robDone}</p></div><button class="primary-button" data-action="generate-draft">${icon('spark')} �-G��}�</button></div><div class="report-grid">${reports.map((r,index)=>`<button class="report-card" data-action="report-card" data-report="${index}"><div class="report-card-icon badge blue">${icon(r[0])}</div><strong>${r[1]}</strong><p>${r[2]}</p><span class="link-button">��M ${icon('arrow',12)}</span></button>`).join('')}</div><div class="grid-equal" style="margin-top:18px"><section class="panel"><div class="panel-head"><div><h3>0��WΔ��</h3><p>�� ScreeningDecision / Extraction / RoB</p></div></div><div class="panel-body"><div class="stats-grid" style="grid-template-columns:repeat(2,1fr);margin:0">${[['�,��',String(screened)],['\؀P,J',String(state.adjudicationRemaining)],['��s`~AY?,String(verified)],['RoB \�$?,String(robDone)]].map(x=>`<div><small class="muted">${x[0]}</small><div style="font-size:22px;font-weight:700;margin-top:5px">${x[1]}</div></div>`).join('')}</div></div></section><section class="panel"><div class="panel-head"><div><h3>�ml�*($?/h3><p>�a9��YF4?/p></div></div><div class="panel-body task-list">${taskRow('layers','amber','E;R��',`S@� ${Math.max(0,state.citations.length-screened)} ��,Math.max(0,state.citations.length-screened),'screening')}${taskRow('shield','red','9~� RoB',`${robDone} $p�9~�`,robDone,'rob')}</div></section></div>`;
+}
+
+function reviewer(initial,role,decision,reason,quote,color) { return `<article class="reviewer-card"><div class="reviewer-head"><div class="avatar">${initial}</div><div><strong>${role}</strong><small>Independent decision</small></div></div><div class="reviewer-decision">${escapeHtml(decision||'')}</div><span class="badge ${color}">${decision==='Include'?'���':decision==='Exclude'?'���':'�m~'}</span><p>${escapeHtml(reason||'')}</p><div class="quote">${escapeHtml(quote||'')}</div></article>`; }
+
+function audit() {
+  const actors = [...new Set(state.audits.map(event => event.actor))];
+  const modulesInLog = [...new Set(state.audits.map(event => event.module).filter(Boolean))];
+  const events = state.audits.filter(event => matchesQuery([event.actor,event.action,event.detail,event.version], state.auditQuery))
+    .filter(event => state.auditActor === 'O)4���p? || event.actor === state.auditActor)
+    .filter(event => state.auditModule === 'O)4�3a' || event.module === state.auditModule);
+  return `${header('Audit trail','9~�9�x��','i�\��I ��IR������7c������yh(�yA�?\~�������?, `<button class="primary-button" data-action="export-audit">${icon('download')} 5N���T</button>`)}<section class="panel"><div class="panel-body"><div class="toolbar"><label class="filter-input">${icon('search')}<input data-filter="audit-query" value="${escapeHtml(state.auditQuery)}" placeholder="�Ũ����zd��p" aria-label="�Ũ9�x��" /></label><select class="select" data-filter="audit-actor" aria-label="�7cƬo�?>${['O)4���p?,...actors].map(value=>`<option ${state.auditActor===value?'selected':''}>${escapeHtml(value)}</option>`).join('')}</select><select class="select" data-filter="audit-module" aria-label="�gC�?>${['O)4�3a',...modulesInLog].map(value=>`<option ${state.auditModule===value?'selected':''}>${escapeHtml(value)}</option>`).join('')}</select><span class="muted">${events.length} ɤ�0?/span></div><div class="audit-timeline">${events.length ? events.map(e=>`<article class="audit-event"><header><strong>${escapeHtml(e.actor)} � ${escapeHtml(e.action)}</strong><time>${escapeHtml(e.time)}</time></header><p>${escapeHtml(e.detail)}</p><code>${escapeHtml(e.version)}</code></article>`).join('') : `<div class="empty-state">${icon('search')}<p>A�@�0���2"(�x���0?/p></div>`}</div></div></section>`;
+}
+
+function aiPanel() {
+  return buildAssistantPanel({
+    state,
+    icon,
+    escapeHtml,
+    titleMap,
+    currentScreenCase,
+    includedForFulltext,
+    screeningConflicts,
+    robJudgement,
+    recomputeDerivedCounts,
+  });
+}
+
+function modal() {
+  if (!state.modal) return '';
+  const payload = state.modalPayload || {};
+  const selectedCriterion = state.criteria.find(item => item.id === payload.id);
+  const selectedExtractionField = state.extractionFields.find((item) => item.id === payload.fieldId);
+  const selectedExtractionCitation = state.citations.find((item) => item.id === payload.citationId);
+  const selectedExtractionValue = extractionValue(payload.citationId, payload.fieldId);
+  const configs = {
+    criterion: [selectedCriterion ? ',���ƺ����o' : '#����ƺ����o', `<form class="form-grid" id="modal-form"><div class="field"><label for="criterion-id">��o ID</label><input id="criterion-id" name="id" value="${escapeHtml(selectedCriterion?.id || '')}" maxlength="4" required /></div><div class="field"><label for="criterion-title">�_�Z�</label><input id="criterion-title" name="title" value="${escapeHtml(selectedCriterion?.title || '')}" required /></div><div class="field full"><label for="criterion-en">{��Z�</label><input id="criterion-en" name="en" value="${escapeHtml(selectedCriterion?.en || '')}" /></div><div class="field full"><label for="criterion-include">�����o!|�$x</label><textarea id="criterion-include" name="include" required>${escapeHtml(selectedCriterion?.include.join('\n') || '')}</textarea></div><div class="field full"><label for="criterion-exclude">�����o!|�$x</label><textarea id="criterion-exclude" name="exclude">${escapeHtml(selectedCriterion?.exclude.join('\n') || '')}</textarea></div><div class="field full"><label for="criterion-reason">ǽ|�q</label><textarea id="criterion-reason" name="reason" placeholder="�X�ǽ|X�|��0��� �0^7R�="></textarea></div></form>`],
+    question: [',�.���}', `<form class="form-grid" id="modal-form"><div class="field full"><label for="research-question">��.���}</label><textarea id="research-question" name="question" autofocus required>${escapeHtml(state.question)}</textarea></div><div class="field full"><label for="question-reason">ǽ|�q</label><textarea id="question-reason" name="reason" placeholder="�Xѓp��%6Uwh�-:���?></textarea></div></form>`],
+    concept: ['�����!�G?, `<form class="form-grid" id="modal-form"><div class="field full"><label for="concept-title">Қ�Z�</label><input id="concept-title" name="title" autofocus required placeholder="*� Automation bias" /></div></form>`],
+    term: ['#�ޫ��#', `<form class="form-grid" id="modal-form"><div class="field full"><label for="term-value">wFq���Y9�</label><input id="term-value" name="value" autofocus required placeholder="*� semi-automated screening" /></div></form>`],
+    import: ['5N���', `<form class="form-grid" id="modal-form"><div class="field"><label for="import-format">��"�N!</label><select id="import-format" name="format">${['RIS','BibTeX','CSV','PubMed XML'].map(format=>`<option ${payload.format===format?'selected':''}>${format}</option>`).join('')}</select></div><div class="field"><label for="import-source">���!ug?/label><input id="import-source" name="source" value="${escapeHtml(payload.source || '')}" placeholder="*� PubMed Search v3" /></div><div class="field full"><label class="drop-zone" for="import-file">${icon('upload',28)}<strong>${payload.fileName ? escapeHtml(payload.fileName) : '�� RIS�ibTeX�SV �?PubMed XML ��"'}</strong><span>${payload.citations ? `�6�?${payload.citations.length} ɤ�0$ : '��"`mj0��4�Mc$Q��'}</span></label><input class="visually-hidden" id="import-file" type="file" accept=".ris,.bib,.bibtex,.csv,.xml,text/csv,application/xml,text/xml" /></div>${payload.error?`<div class="form-error field full">${escapeHtml(payload.error)}</div>`:''}</form>`],
+    settings: ['$-0��h-�?, (() => {
+      const currentCred = state.credentials.find((c) => c.id === state.credentialId);
+      const savedList = state.credentials.length
+        ? `<div class="field full"><label>�mZ<�Q_A</label><div class="credential-list">${state.credentials.map((c) => `<div class="credential-row ${c.id===state.credentialId?'active':''}"><strong>${escapeHtml(c.name)}</strong><small>${escapeHtml(c.provider)} � ${escapeHtml(c.defaultModel)} � ****${escapeHtml(c.apiKeyLast4)}</small>${c.id===state.credentialId?'<span class="badge green">0��$-0</span>':''}</div>`).join('')}</div><p class="muted" style="font-size:11px;margin-top:6px">9
+��+�,����(?API Key YDjȅ���5����4�Mc$	|,@	����嬚gUw�EX**� ****Z�c�O��ġ��Z;�T��?/p></div>`
+        : `<div class="field full"><div class="status-banner">i;��
+����(�h*������f$�p^P?API Key Z�c���?/div></div>`;
+      return `<form class="form-grid" id="modal-form"><div class="field full"><label for="project-name">$-0Z�</label><input id="project-name" name="name" value="${escapeHtml(state.projectName)}" required /></div><div class="field"><label for="review-type">Review ��7</label><select id="review-type" name="type"><option>Intervention</option><option>Diagnosis</option><option>Prognosis</option></select></div><div class="field"><label for="collaboration-mode">�?{WΔ�3!</label><select id="collaboration-mode" name="mode"><option>۞�R��</option><option>AI Hm�R��</option></select></div><div class="field full"><label for="escalation-rule">wD�W�Y�</label><textarea id="escalation-rule" name="rule">��9-�G�}	��	ҽ�y#Q��y���Z�IH��ùW�wEI��)Ь?/textarea></div>${savedList}<div class="field full"><label for="credential-id">$-0c�d(럹?/label><select id="credential-id" name="credentialId"><option value="">�H��</option>${state.credentials.map((c)=>`<option value="${c.id}" ${state.credentialId===c.id?'selected':''}>${escapeHtml(c.name)} � ${c.provider} � ****${c.apiKeyLast4}</option>`).join('')}</select></div><div class="field full"><strong>��Q_A</strong><p class="muted" style="font-size:11px;margin:4px 0 0">`mjǬUyʧ?Key ��^P1# API Key Rg�X�$-0�g�����
+����?/p></div><div class="field"><label for="cred-provider">Provider</label><select id="cred-provider" name="provider"><option value="nvidia">NVIDIA NIM</option><option value="openai">OpenAI</option><option value="deepseek">DeepSeek</option><option value="azure">Azure OpenAI</option><option value="custom">Custom</option></select></div><div class="field"><label for="cred-model">�?{�37</label><input id="cred-model" name="defaultModel" placeholder="meta/llama-3.1-70b-instruct" /></div><div class="field full"><label for="cred-name">Q_AZ�</label><input id="cred-name" name="credName" placeholder="My NVIDIA key" /></div><div class="field full"><label for="cred-base">Base URLr�4c�d��?/label><input id="cred-base" name="baseUrl" placeholder="https://integrate.api.nvidia.com/v1" /></div><div class="field full"><label for="cred-key">�?API Key</label><input id="cred-key" name="apiKey" type="password" autocomplete="off" placeholder="${currentCred ? `�mZ?****${currentCred.apiKeyLast4}}�Ǭ�����O�� Key` : '�? API Key Z�Z?}" /></div></form>`;
+    })()],
+    exclusion: ['��O&�����q', `<form class="form-grid" id="modal-form"><div class="field full"><label for="exclude-reason">�����o</label><select id="exclude-reason" name="reason"><option value="S3 � .��Px���Z?>S3 � .��Px���Z?/option><option value="P1 � .�5E����Z?>P1 � .�5E����Z?/option><option value="I1 � �C"%G�a��37">I1 � �C"%G�a��37</option><option value="O1 � �E�[D0��^�">O1 � �E�[D0��^�</option></select></div><div class="field full"><label for="exclude-note">�X�</label><textarea id="exclude-note" name="note" placeholder="Y�0���Ժ��(�+��喇X�"></textarea></div></form>`],
+    'extraction-field': [selectedExtractionField ? ',�,GA�' : '��,GA�', `<form class="form-grid" id="modal-form"><div class="field"><label for="extract-label">A�Z�</label><input id="extract-label" name="label" value="${escapeHtml(selectedExtractionField?.label || '')}" autofocus required placeholder="*� �ږ��" /></div><div class="field"><label for="extract-key">A���</label><input id="extract-key" name="key" value="${escapeHtml(selectedExtractionField?.key || '')}" required pattern="[a-z][a-z0-9_]*" placeholder="follow_up_time" /></div><div class="field"><label for="extract-group">��^��?/label><select id="extract-group" name="group">${Object.entries(extractionGroupLabels).map(([value,label])=>`<option value="${value}" ${value===(selectedExtractionField?.group||state.extractionTab)?'selected':''}>${label}</option>`).join('')}</select></div><div class="field"><label for="extract-type">A���7</label><select id="extract-type" name="dataType">${Object.entries(extractionTypeLabels).map(([value,label])=>`<option value="${value}" ${value===(selectedExtractionField?.dataType||'text')?'selected':''}>${label}</option>`).join('')}</select></div><div class="field full"><label for="extract-description">�,G�X�</label><textarea id="extract-description" name="description" placeholder="�Xч��5�9+�\~AY'[�?>${escapeHtml(selectedExtractionField?.description || '')}</textarea></div><div class="field full"><label for="extract-options">��W�
+�������N</label><textarea id="extract-options" name="options" placeholder="Yes&#10;No&#10;Unclear">${escapeHtml(selectedExtractionField?.options?.join('\n') || '')}</textarea></div><div class="field"><label for="extract-order">��-</label><input id="extract-order" name="sortOrder" type="number" min="0" value="${Number(selectedExtractionField?.sortOrder || 0)}" /></div><label class="check-field"><input name="required" type="checkbox" ${selectedExtractionField?.required?'checked':''} /> ��Gm^A�</label></form>`],
+    'extraction-value': ['ɢS�,GJ?, `<form class="form-grid" id="modal-form"><div class="field full"><label>.�</label><div class="readonly-field">${escapeHtml(selectedExtractionCitation?.title || '')}</div></div><div class="field full"><label for="extract-value">${escapeHtml(selectedExtractionField?.label || 'A�J?)}</label>${selectedExtractionField?.dataType==='select'?`<select id="extract-value" name="value"><option value="">����</option>${(selectedExtractionField.options||[]).map((option)=>`<option ${option===selectedExtractionValue?.value?'selected':''}>${escapeHtml(option)}</option>`).join('')}</select>`:`<input id="extract-value" name="value" value="${escapeHtml(selectedExtractionValue?.value || '')}" ${selectedExtractionField?.required?'required':''} />`}</div><div class="field full"><label for="extract-evidence">5p2X���yA</label><textarea id="extract-evidence" name="evidenceText" placeholder="�?�ԇ嬩�X���">${escapeHtml(selectedExtractionValue?.evidenceText || '')}</textarea></div><div class="field"><label for="extract-location">��.c��</label><input id="extract-location" name="sourceLocation" value="${escapeHtml(selectedExtractionValue?.sourceLocation || '')}" placeholder="*� Methods, p. 3" /></div><div class="field"><label for="extract-confidence">���*�</label><select id="extract-confidence" name="confidence"><option value="">�E#�?/option>${['High','Moderate','Low'].map((value)=>`<option ${value===selectedExtractionValue?.confidence?'selected':''}>${value}</option>`).join('')}</select></div><label class="check-field full"><input name="verified" type="checkbox" ${selectedExtractionValue?.verified?'checked':''} /> �,q\��YX��</label></form>`],
+    'archive-extraction-field': ['0��,GA�', `<form id="modal-form"><div class="warning-box"><strong>0�%?{escapeHtml(selectedExtractionField?.label || '')}%�5</strong><p>A�O�	P��j�,G$Q��ӍO�J�0�Ȁ}r"�x׳Z�;� 2�'�QR�?/p></div></form>`],
+    search: ['�Ũ$-0Pm�', searchModalBody()],
+    notifications: ['�1a', state.audits.length ? `<div class="notice-list">${state.audits.slice(0,5).map((e)=>`<button data-nav="audit"><strong>${escapeHtml(e.action)}</strong><span>${escapeHtml(e.detail)}</span></button>`).join('')}</div>` : `<div class="empty-state"><p>ƛ�1a��7c�B"��|,�j9�x���\�?/p></div>`],
+    team: ['$-0e$�', `<div class="member-list">${(state.projectMembers||[]).map((m)=>`<div class="member-row"><span class="avatar">${escapeHtml((m.user?.name||'?').slice(0,2))}</span><div><strong>${escapeHtml(m.user?.name||'')}</strong><small>${escapeHtml(m.role)} � ${escapeHtml(m.user?.email||'')}</small></div></div>`).join('') || '<div class="empty-state"><p>ƛ�,��</p></div>'}</div>`],
+    history: ['��pX�v', state.protocolVersions?.length ? `<div class="version-list">${state.protocolVersions.map((v)=>`<div><strong>v${v.version}</strong><p>${escapeHtml(v.question||'')}</p><small>${new Date(v.createdAt).toLocaleString('zh-CN')}</small></div>`).join('')}</div>` : `<div class="empty-state"><p>ƛ�X�vp</p></div>`],
+    report: ['����M', `<div class="report-preview"><span class="badge amber">}�</span><h2>${escapeHtml(payload.title || '��')}</h2><p>${escapeHtml(payload.description || '')}</p><div class="preview-block"><strong>�HA|�?</strong><p>ip,0��$-0ȅ�����0�� ${state.citations.length} ��,� ${state.screeningCompleted} �9�x ${state.audits.length} ɰ�?/p></div></div>`],
+    citation: ['���=', `<div class="report-preview"><span class="badge blue">${escapeHtml(payload.source || '')}</span><h2>${escapeHtml(payload.title || '')}</h2><p>${escapeHtml(payload.authors || '')}</p><div class="preview-block"><strong>DOI</strong><p>${escapeHtml(payload.doi || '�EA?)}</p></div><div class="preview-block"><strong>O&�5�?/strong><p>${escapeHtml(payload.fullText || 'Missing')} � O����l�Q� ${Number(payload.completeness)||0}%</p></div></div>`],
+  };
+  const [title,body] = configs[state.modal] || configs.settings;
+  const saveable = ['criterion','question','concept','term','import','settings','exclusion','extraction-field','extraction-value','archive-extraction-field'].includes(state.modal);
+  const saveLabel = state.modal === 'import' ? '5N�' : state.modal === 'exclusion' ? '��{���' : state.modal === 'archive-extraction-field' ? '��{0�' : '���';
+  const saveDisabled = false;
+  return `<div class="modal-backdrop" data-action="modal-backdrop"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-head"><h3 id="modal-title">${title}</h3><button class="icon-button" data-action="modal-close" aria-label="O��">${icon('x')}</button></div><div class="modal-body">${body}</div><div class="modal-actions"><button class="ghost-button" data-action="modal-close">${saveable?'Y(�':'O��'}</button>${saveable?`<button class="primary-button" data-action="modal-save" ${saveDisabled?'disabled':''}>${saveLabel}</button>`:''}</div></div></div>`;
+}
+
+function searchModalBody() {
+  const results = searchableRecords().filter(record => matchesQuery([record.title, record.meta, record.type], state.searchQuery)).slice(0, 12);
+  return `<label class="filter-input" style="width:100%">${icon('search')}<input autofocus data-search-input value="${escapeHtml(state.searchQuery)}" placeholder="�Ũ���y#Qب�����" aria-label="�Ũ$-0Pm�" /></label>${state.searchQuery ? `<div class="search-results">${results.length ? results.map(record=>`<button data-nav="${record.nav}"><span class="badge gray">${record.type}</span><strong>${escapeHtml(record.title)}</strong><small>${escapeHtml(record.meta)}</small></button>`).join('') : `<div class="empty-state" style="padding:28px">${icon('search')}<p>A���VR�Pm�</p></div>`}</div>` : `<div class="empty-state" style="padding:28px">${icon('command')}<p>H��O�m���-կ3a�Ũ</p></div>`}`;
+}
+
+function toast(message) {
+  const root = document.getElementById('toast-root');
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = icon('check');
+  const text = document.createElement('span');
+  text.textContent = message;
+  el.appendChild(text);
+  root.appendChild(el);
+  setTimeout(() => el.remove(), 2800);
+}
+
+function bindEvents() {
+  document.querySelectorAll('[data-nav]').forEach(el => el.addEventListener('click', () => navigate(el.dataset.nav)));
+  document.querySelectorAll('[data-db]').forEach(el => el.addEventListener('click', () => { state.db = el.dataset.db; persistState(); app(); }));
+  document.querySelectorAll('[data-extraction-tab]').forEach(el => el.addEventListener('click', () => { state.extractionTab = el.dataset.extractionTab; persistState(); app(); }));
+  document.querySelectorAll('[data-extraction-view]').forEach(el => el.addEventListener('click', () => { state.extractionView = el.dataset.extractionView; persistState(); app(); }));
+  document.querySelectorAll('[data-screen-mode]').forEach(el => el.addEventListener('click', () => { state.screenMode = el.dataset.screenMode; persistState(); app(); }));
+  document.querySelectorAll('[data-decision]').forEach(el => el.addEventListener('click', () => submitScreenDecision(el.dataset.decision)));
+  document.querySelectorAll('[data-resolution]').forEach(el => el.addEventListener('click', async () => {
+    if (state.adjudicationResolution) return;
+    const conflicts = screeningConflicts();
+    const current = conflicts[state.adjudicationIndex || 0];
+    if (!current?.citation?.id) { toast('AY�P�P,J'); return; }
+    const resolution = el.dataset.resolution;
+    try {
+      await ScreeningApi.submitFinal(state.projectId, current.citation.id, {
+        decision: resolution,
+        criterionIds: [],
+        rationale: `Adjudication of human=${current.human.decision} vs ai=${current.ai.decision}`,
+        evidence: current.human.evidence || current.ai.evidence || '',
+      });
+      state.adjudicationResolution = resolution;
+      await refreshProjectData();
+      app();
+      toast(`Ȭ#�P��P�ȅ��$0${resolution}`);
+      setTimeout(() => {
+        state.adjudicationResolution = null;
+        const nextConflicts = screeningConflicts();
+        state.adjudicationIndex = nextConflicts.length ? Math.min(state.adjudicationIndex || 0, nextConflicts.length - 1) : 0;
+        app();
+      }, 800);
+    } catch (err) {
+      toast(err.message || 'Ax���趫�');
+    }
+  }));
+  document.querySelectorAll('[data-cell]').forEach(el => el.addEventListener('click', () => { state.aiOpen = true; app(); setTimeout(()=>toast(`��~c?${el.dataset.cell} (�+��	���?${el.dataset.source} $0),50); }));
+  document.querySelectorAll('[data-action]').forEach(el => el.addEventListener('click', event => handleAction(el.dataset.action, event)));
+  document.querySelectorAll('[data-filter]').forEach(el => el.addEventListener(el.tagName === 'INPUT' ? 'input' : 'change', () => {
+    const mapping = { 'library-query':'libraryQuery', 'library-source':'librarySource', 'library-fulltext':'libraryFullText', 'audit-query':'auditQuery', 'audit-actor':'auditActor', 'audit-module':'auditModule' };
+    state[mapping[el.dataset.filter]] = el.value;
+    persistState();
+    const selector = `[data-filter="${el.dataset.filter}"]`;
+    const render = () => { app(); requestAnimationFrame(() => { const input = document.querySelector(selector); input?.focus(); if (input?.setSelectionRange) input.setSelectionRange(input.value.length,input.value.length); }); };
+    if (el.tagName === 'INPUT') { clearTimeout(inputRenderTimer); inputRenderTimer=setTimeout(render,120); } else render();
+  }));
+  document.querySelectorAll('[data-batch-select]').forEach(el => el.addEventListener('change', () => {
+    state.selectedBatch = el.checked ? [...new Set([...state.selectedBatch, el.dataset.batchSelect])] : state.selectedBatch.filter(id => id !== el.dataset.batchSelect);
+    app();
+  }));
+  document.querySelector('[data-batch-all]')?.addEventListener('change', event => {
+    const ids = (state.screeningQueue.length ? state.screeningQueue : state.citations).map((item) => String(item.id));
+    state.selectedBatch = event.currentTarget.checked ? ids : [];
+    app();
+  });
+  document.querySelectorAll('[data-batch-decision]').forEach(el => el.addEventListener('change', () => {
+    if (el.value) state.batchDecisions[el.dataset.batchDecision] = el.value; else delete state.batchDecisions[el.dataset.batchDecision];
+    persistState();
+  }));
+  document.querySelector('[data-search-input]')?.addEventListener('input', event => {
+    state.searchQuery = event.currentTarget.value;
+    clearTimeout(inputRenderTimer);
+    inputRenderTimer=setTimeout(() => { app(); requestAnimationFrame(() => { const input = document.querySelector('[data-search-input]'); input?.focus(); input?.setSelectionRange(input.value.length,input.value.length); }); },120);
+  });
+  document.getElementById('import-file')?.addEventListener('change', handleImportFile);
+  document.querySelector('[data-rob-citation]')?.addEventListener('change', (event) => refreshRobData(event.currentTarget.value).catch((err) => toast(err.message || 'T�GKӬ3`�Q�?)));
+  document.getElementById('modal-form')?.addEventListener('submit', event => { event.preventDefault(); saveModal(); });
+  document.onkeydown = keyboardHandler;
+}
+
+function keyboardHandler(e) {
+  const editing = e.target instanceof HTMLElement && (['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName) || e.target.isContentEditable);
+  if (!editing && !state.modal && !state.decision && state.active === 'screening' && state.screenMode === 'single' && ['1','2','3'].includes(e.key)) {
+    submitScreenDecision({'1':'Include','2':'Exclude','3':'Uncertain'}[e.key]);
+  }
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); state.modal='search'; app(); }
+  if (e.key === 'Escape') {
+    if (state.modal) { state.modal = null; state.modalPayload = null; app(); }
+    else if (state.aiOpen || state.sidebarOpen) { state.aiOpen = false; state.sidebarOpen = false; app(); }
+  }
+}
+
+async function submitScreenDecision(decision) {
+  if (state.decision) return;
+  const index = state.screeningIndex;
+  const item = currentScreenCase();
+  if (!item.id) {
+    toast('AY����');
+    return;
+  }
+  try {
+    await ScreeningApi.submitHuman(state.projectId, item.id, { decision, criterionIds: [] });
+    let aiDecision = item.ai;
+    if (state.credentialId) {
+      try {
+        const ai = await ScreeningApi.runAi(state.projectId, item.id, { credentialId: state.credentialId });
+        aiDecision = ai.decision?.decision || ai.result?.decision || item.ai;
+        item.ai = aiDecision;
+        item.reason = ai.result?.rationale || ai.decision?.rationale || '';
+        item.evidence = ai.result?.evidenceSpans?.join(' | ') || ai.decision?.evidence || '';
+        item.confidence = ai.result?.confidence || ai.decision?.confidence || item.confidence;
+      } catch (err) {
+        toast(`\��mZH1AI ��d���?{err.message}`);
+      }
+    }
+    state.decision = decision;
+    state.aiOpen = true;
+    state.screeningDecisions[item.id] = decision;
+    state.screeningCompleted += 1;
+    auditEvent(`R����?${decision}`, `\�R��ZI=${aiDecision}`, 'Screening', 'Protocol');
+    app();
+    toast(decision === aiDecision ? '��A\��?AI R�Ǔ�w? : '��A\�Ys5?AI ��');
+    setTimeout(async () => {
+      if (state.active !== 'screening' || state.screenMode !== 'single') return;
+      await refreshScreeningQueue();
+      state.screeningIndex = (index + 1) % Math.max(state.screeningQueue.length || state.citations.length || 1, 1);
+      state.decision = null;
+      persistState();
+      app();
+    }, 1200);
+  } catch (err) {
+    toast(err.message || '�*&���');
+  }
+}
+
+async function handleImportFile(event) {
+  const file = event.currentTarget.files?.[0];
+  if (!file) return;
+  const form = document.getElementById('modal-form');
+  const extension = file.name.split('.').pop()?.toLowerCase();
+  const format = ({ ris:'RIS', bib:'BibTeX', bibtex:'BibTeX', csv:'CSV', xml:'PubMed XML' })[extension] || form.elements.format.value;
+  const source = form.elements.source.value.trim() || file.name;
+  try {
+    const citations = parseCitationFile(await file.text(), format, source);
+    if (!citations.length) throw new Error('��"�_��
+r���(���0?);
+    state.modalPayload = { fileName: file.name, source, format, citations };
+  } catch (error) {
+    state.modalPayload = { fileName: file.name, source, format, error: error.message };
+  }
+  app();
+}
+
+async function saveModal() {
+  const form = document.getElementById('modal-form');
+  if (!form?.reportValidity()) return;
+  const data = Object.fromEntries(new FormData(form));
+  const modalType = state.modal;
+  if (modalType === 'criterion') {
+    const id = data.id.trim().toUpperCase();
+    if (!/^[A-Z][A-Z0-9]{0,3}$/.test(id)) { toast('��o ID Ǭ`�����Ȭ�?4 c?); return; }
+    const duplicate = state.criteria.some(item => item.id === id && item.id !== state.modalPayload?.id);
+    if (duplicate) { toast('��o ID ���f?); return; }
+    const item = { id, title: data.title.trim(), en: data.en.trim(), include: data.include.split(/\r?\n/).map(value=>value.trim()).filter(Boolean), exclude: data.exclude.split(/\r?\n/).map(value=>value.trim()).filter(Boolean) };
+    const nextCriteria = [...state.criteria];
+    const index = nextCriteria.findIndex(entry => entry.id === state.modalPayload?.id);
+    if (index >= 0) nextCriteria[index] = item; else nextCriteria.push(item);
+    try {
+      await ProtocolApi.create(state.projectId, {
+        question: state.question,
+        notes: data.reason.trim() || 'Updated eligibility criteria',
+        criteria: nextCriteria.map((c, i) => ({
+          code: c.id,
+          title: c.title,
+          titleEn: c.en || undefined,
+          includeText: (c.include || []).join('\n'),
+          excludeText: (c.exclude || []).join('\n'),
+          sortOrder: i + 1,
+        })),
+      });
+      await refreshProjectData();
+      state.modal = null; state.modalPayload = null; app();
+      toast(index >= 0 ? '����o��?�����' : '����o��JT�����');
+    } catch (err) { toast(err.message || '����趫�'); }
+    return;
+  } else if (modalType === 'question') {
+    try {
+      await ProtocolApi.create(state.projectId, {
+        question: data.question.trim(),
+        notes: data.reason.trim() || 'Updated research question',
+        criteria: state.criteria.map((c, i) => ({
+          code: c.id,
+          title: c.title,
+          titleEn: c.en || undefined,
+          includeText: (c.include || []).join('\n'),
+          excludeText: (c.exclude || []).join('\n'),
+          sortOrder: i + 1,
+        })),
+      });
+      await refreshProjectData();
+      state.modal = null; state.modalPayload = null; app();
+      toast('.���}�mZ:�ȅ��?);
+    } catch (err) { toast(err.message || '.���}��趫�'); }
+    return;
+  } else if (modalType === 'concept') {
+    const number = state.concepts.length + 1;
+    state.concepts.push({ id: `concept-${Date.now()}`, index: `Concept ${number}`, title: data.title.trim(), controlled: [], free: [] });
+    auditEvent(`#�ޫ��!�G?${data.title.trim()}`, '���!�G[X��?�,�?, 'Search', 'Search draft');
+  } else if (modalType === 'term') {
+    const concept = state.concepts.find(item => item.id === state.modalPayload?.id);
+    if (concept && !concept.free.some(term => term.toLowerCase() === data.value.trim().toLowerCase())) concept.free.push(data.value.trim());
+    auditEvent(`#�ޫ��# ${data.value.trim()}`, `���O?${concept?.title || '���"�#?}��, 'Search', 'Search draft');
+  } else if (modalType === 'import') {
+    const fileInput = document.getElementById('import-file');
+    const file = fileInput?.files?.[0];
+    if (!file) { toast('������"'); return; }
+    CitationApi.importFile(state.projectId, file, data.format, data.source.trim() || file.name)
+      .then(async () => {
+        toast('�m|��Ejȅ���?);
+        await refreshProjectData();
+        app();
+      })
+      .catch((err) => toast(err.message || '5Nƶ��'));
+    state.modal = null;
+    state.modalPayload = null;
+    app();
+    return;
+  } else if (modalType === 'extraction-field') {
+    const editingField = Boolean(state.modalPayload?.fieldId);
+    const body = {
+      label: data.label.trim(),
+      key: data.key.trim().toLowerCase(),
+      group: data.group,
+      dataType: data.dataType,
+      description: data.description.trim(),
+      options: data.options.split(/\r?\n/).map((value)=>value.trim()).filter(Boolean),
+      required: data.required === 'on',
+      sortOrder: Number(data.sortOrder || 0),
+    };
+    try {
+      if (editingField) await ExtractionApi.updateField(state.projectId, state.modalPayload.fieldId, body);
+      else await ExtractionApi.createField(state.projectId, body);
+      await refreshExtractionData();
+      state.modal = null; state.modalPayload = null; state.extractionView = 'fields'; persistState(); app();
+      toast(editingField ? 'A���?�����' : 'A��ұ������');
+    } catch (err) { toast(err.message || 'A���趫�'); }
+    return;
+  } else if (modalType === 'extraction-value') {
+    try {
+      await ExtractionApi.saveValue(state.projectId, state.modalPayload.citationId, state.modalPayload.fieldId, {
+        value: data.value || '',
+        evidenceText: data.evidenceText?.trim() || undefined,
+        sourceLocation: data.sourceLocation?.trim() || undefined,
+        confidence: data.confidence || undefined,
+        verified: data.verified === 'on',
+      });
+      await refreshExtractionData();
+      state.modal = null; state.modalPayload = null; app(); toast('�,GJN�X���yA�mZ?);
+    } catch (err) { toast(err.message || '�,GJ�Z:Q�?); }
+    return;
+  } else if (modalType === 'archive-extraction-field') {
+    try {
+      await ExtractionApi.removeField(state.projectId, state.modalPayload.fieldId);
+      await refreshExtractionData();
+      state.modal = null; state.modalPayload = null; app(); toast('A��Ҋ�OX�v�,GJ��5Z#?);
+    } catch (err) { toast(err.message || 'A�0����'); }
+    return;
+  } else if (modalType === 'settings') {
+    saveSettings(data);
+    return;
+  } else if (modalType === 'exclusion') {
+    state.fulltextDecision = `Exclude � ${data.reason}`;
+    persistState();
+  }
+  state.modal = null;
+  state.modalPayload = null;
+  persistState();
+  app();
+  toast(modalType === 'import' ? '�����O��9~�XZx' : 'ǽ|�mZH������(�x���0?);
+}
+
+async function runAssistantAction(action) {
+  const citationId = assistantFocusId(state, { currentScreenCase, includedForFulltext, screeningConflicts });
+  const needCred = () => {
+    if (!state.credentialId) { toast('�𛰇��37Q_A'); return false; }
+    return true;
+  };
+  const setBusy = (v) => { state.assistantBusy = v; app(); };
+
+  try {
+    if (action === 'assistant-clear-suggestion') {
+      state.pendingProtocolSuggestion = null;
+      state.pendingSearchTerms = null;
+      state.assistantResult = null;
+      app();
+      return;
+    }
+    if (action === 'assistant-apply-search-terms') {
+      const concept = state.concepts[0];
+      if (!concept || !state.pendingSearchTerms?.length) return;
+      for (const term of state.pendingSearchTerms) {
+        if (!concept.free.some((t) => t.toLowerCase() === term.toLowerCase())) concept.free.push(term);
+      }
+      state.pendingSearchTerms = null;
+      state.assistantResult = { title: '���O���!�G?, summary: `��SO?${concept.title}` };
+      app();
+      toast('���#���O�S��G�� t}�}rE;,�?);
+      return;
+    }
+    if (action === 'assistant-adopt-adjudication') {
+      const s = state.adjudicationSuggestion;
+      if (!s || !citationId) return;
+      await ScreeningApi.submitFinal(state.projectId, citationId, {
+        decision: s.decision,
+        criterionIds: [],
+        rationale: s.rationale,
+        evidence: s.evidence,
+        confidence: s.confidence,
+      });
+      state.adjudicationSuggestion = null;
+      await refreshProjectData();
+      app();
+      toast('Ax��?���p���P�#�');
+      return;
+    }
+    if (action === 'assistant-library-gaps') {
+      const missingAbstract = state.citations.filter((c) => !c.abstract).length;
+      const missingFull = state.citations.filter((c) => c.fullText === 'Missing').length;
+      state.assistantResult = {
+        title: '��4��Y?,
+        summary: `O?${state.citations.length} �0سU?${missingAbstract}��O&� ${missingFull}��,
+      };
+      app();
+      return;
+    }
+    if (action === 'assistant-run-rob-ai') {
+      await runRobAi();
+      return;
+    }
+
+    if (!needCred()) return;
+    setBusy(true);
+
+    if (action === 'assistant-priority-summary') {
+      const prompt = `�t���S�)�bT"$Q��Qp���-O($x���i?����ۢ�?${Math.max(0, state.citations.length - state.screeningCompleted)}}�?${state.adjudicationRemaining}~�?${state.citations.length}��;
+      const res = await LlmApi.chat({
+        credentialId: state.credentialId,
+        projectId: state.projectId,
+        context: { module: 'dashboard' },
+        messages: [{ role: 'user', content: prompt }],
+      });
+      state.assistantResult = { title: '`C�|:�\.', summary: res.content || '', badge: '�?�' };
+      state.lastAiQuestion = prompt;
+      state.lastAiAnswer = res.content || '';
+    } else if (action === 'assistant-suggest-criteria') {
+      const prompt = `.���}?{state.question}\n���?3-5 ��O�Ć#Q��,��oZ?code�wQ��#�8�z�O�yď��gH�����
+���wD�����;
+      const res = await LlmApi.chat({
+        credentialId: state.credentialId,
+        projectId: state.projectId,
+        context: { module: 'protocol' },
+        messages: [{ role: 'user', content: prompt }],
+      });
+      state.pendingProtocolSuggestion = res.content || '';
+      state.assistantResult = null;
+      state.lastAiQuestion = prompt;
+      state.lastAiAnswer = res.content || '';
+    } else if (action === 'assistant-suggest-terms') {
+      const concept = state.concepts[0];
+      const prompt = `���!�G��?{concept?.title || ''}��G��"�?{(concept?.free || []).join(', ')}\n��@�?� 5-8 �G��瓔/wFq�������N���'��;
+      const res = await LlmApi.chat({
+        credentialId: state.credentialId,
+        projectId: state.projectId,
+        context: { module: 'search' },
+        messages: [{ role: 'user', content: prompt }],
+      });
+      state.pendingSearchTerms = String(res.content || '')
+        .split(/\r?\n/)
+        .map((line) => line.replace(/^[-*\d.)\s]+/, '').trim())
+        .filter(Boolean)
+        .slice(0, 12);
+      state.assistantResult = null;
+      state.lastAiQuestion = prompt;
+      state.lastAiAnswer = res.content || '';
+    } else if (action === 'assistant-run-screen-ai') {
+      if (!citationId) throw new Error('A>c��');
+      const ai = await ScreeningApi.runAi(state.projectId, citationId, { credentialId: state.credentialId });
+      const decision = ai.decision || {};
+      const result = ai.result || {};
+      state.assistantResult = {
+        title: 'R�� AI',
+        badge: decision.decision || result.decision || '',
+        summary: decision.rationale || result.rationale || '',
+        evidence: decision.evidence || (result.evidenceSpans || []).join(' | ') || '',
+      };
+      await refreshScreeningQueue();
+    } else if (action === 'assistant-batch-ai') {
+      if (!state.selectedBatch?.length) throw new Error('��UC��?);
+      const job = await ScreeningApi.batchAi(state.projectId, {
+        citationIds: state.selectedBatch,
+        credentialId: state.credentialId,
+      });
+      state.assistantResult = { title: '�Rz AI ����?, summary: `jobId=${job.jobId}}� ${state.selectedBatch.length} ��, badge: 'queued' };
+    } else if (action === 'assistant-fulltext-ai' || action === 'run-fulltext-ai') {
+      if (!citationId) throw new Error('A�,�O�?);
+      const res = await ScreeningApi.fulltextAi(state.projectId, citationId, { credentialId: state.credentialId });
+      state.assistantResult = {
+        title: 'O&���x AI',
+        badge: res.decision?.decision || res.result?.decision || '',
+        summary: res.result?.rationale || res.decision?.rationale || '',
+        evidence: res.result?.evidenceSpans?.join(' | ') || res.decision?.evidence || '',
+      };
+      await refreshScreeningQueue();
+    } else if (action === 'assistant-extract-row' || action === 'run-extract-ai') {
+      if (!citationId) throw new Error('AYAY(�?);
+      const res = await ExtractionApi.runAi(state.projectId, citationId, { credentialId: state.credentialId });
+      await refreshExtractionData();
+      state.assistantResult = {
+        title: '�,G��^9~�',
+        badge: `${res.count || 0} ��,
+        summary: `��SO?${res.count || 0} �D��1��C ${(res.skipped || []).length} $x�yA��r�Y�+Jw��,
+      };
+    } else if (action === 'assistant-extract-cell') {
+      const fieldId = state.modalPayload?.fieldId;
+      const cid = state.modalPayload?.citationId || citationId;
+      if (!cid || !fieldId) throw new Error('�𛵳�*ܻ,GWޓ�?);
+      const res = await ExtractionApi.runAi(state.projectId, cid, { credentialId: state.credentialId, fieldIds: [fieldId] });
+      await refreshExtractionData();
+      state.assistantResult = {
+        title: 'Wޓ�xi�?,
+        badge: `${res.count || 0}`,
+        summary: res.count ? '��t��r�Y�yAP�0��A��? : '�GXP�#	��	�k���.���?,
+      };
+    } else if (action === 'assistant-adjudication-suggest') {
+      if (!citationId) throw new Error('AP,J��');
+      const res = await ScreeningApi.adjudicationSuggest(state.projectId, citationId, { credentialId: state.credentialId });
+      state.adjudicationSuggestion = res.suggestion;
+      state.assistantResult = null;
+    } else if (action === 'assistant-report-draft') {
+      const prompt = `��d�_�P�5���i4)���}�!�?50K���?${state.citations.length}}��?${state.screeningCompleted}}�?${state.adjudicationRemaining}~AY'��?${state.extractionValues.filter((v) => v.value).length}ooB \� ${state.robJudgements.filter((j) => j.actor === 'human').length}��;
+      const res = await LlmApi.chat({
+        credentialId: state.credentialId,
+        projectId: state.projectId,
+        context: { module: 'synthesis' },
+        messages: [{ role: 'user', content: prompt }],
+      });
+      state.assistantResult = { title: '��}�C�', summary: res.content || '', badge: '}�' };
+      state.lastAiQuestion = prompt;
+      state.lastAiAnswer = res.content || '';
+    } else if (action === 'assistant-explain-audit') {
+      const ev = state.audits[0];
+      const prompt = `���EV�3x�2(`A���v@Ȕ	Z�;�?�?{ev?.actor} � ${ev?.action} � ${ev?.detail}`;
+      const res = await LlmApi.chat({
+        credentialId: state.credentialId,
+        projectId: state.projectId,
+        context: { module: 'audit' },
+        messages: [{ role: 'user', content: prompt }],
+      });
+      state.assistantResult = { title: '9�xYIt', summary: res.content || '' };
+      state.lastAiQuestion = prompt;
+      state.lastAiAnswer = res.content || '';
+    } else {
+      toast('�FaTB�T$�');
+    }
+  } catch (err) {
+    toast(err.message || 'TB�T$����');
+  } finally {
+    state.assistantBusy = false;
+    app();
+  }
+}
+
+function handleAction(action, event) {
+  if (action === 'menu') { state.sidebarOpen = !state.sidebarOpen; app(); return; }
+  if (action === 'ai-toggle') { state.aiOpen = !state.aiOpen; app(); return; }
+  if (action === 'ai-close') { state.aiOpen = false; app(); return; }
+  if (action === 'global-search') { state.searchQuery = ''; state.modal = 'search'; app(); return; }
+  if (action === 'settings' || action === 'project') { state.modal = 'settings'; state.modalPayload = null; app(); return; }
+  if (action === 'schema') { state.extractionView = 'fields'; persistState(); app(); return; }
+  if (action === 'add-extraction-field') { state.modal = 'extraction-field'; state.modalPayload = {}; app(); return; }
+  if (action === 'edit-extraction-field') { state.modal = 'extraction-field'; state.modalPayload = { fieldId: event.currentTarget.dataset.id }; app(); return; }
+  if (action === 'archive-extraction-field') { state.modal = 'archive-extraction-field'; state.modalPayload = { fieldId: event.currentTarget.dataset.id }; app(); return; }
+  if (action === 'edit-extraction-value') { state.modal = 'extraction-value'; state.modalPayload = { citationId: event.currentTarget.dataset.citationId, fieldId: event.currentTarget.dataset.fieldId }; app(); return; }
+  if (action === 'import' || action === 'import-search') { state.modal = 'import'; state.modalPayload = {}; app(); return; }
+  if (action === 'edit-criterion') { state.modal = 'criterion'; state.modalPayload = { id: event.currentTarget.dataset.id }; app(); return; }
+  if (action === 'add-criterion') { state.modal = 'criterion'; state.modalPayload = {}; app(); return; }
+  if (action === 'edit-question') { state.modal = 'question'; state.modalPayload = {}; app(); return; }
+  if (action === 'add-concept') { state.modal = 'concept'; state.modalPayload = {}; app(); return; }
+  if (action === 'add-term') { state.modal = 'term'; state.modalPayload = { id: event.currentTarget.dataset.id }; app(); return; }
+  if (action === 'modal-backdrop' && event.target !== event.currentTarget) return;
+  if (action === 'modal-close' || action === 'modal-backdrop') { state.modal = null; state.modalPayload = null; app(); return; }
+  if (action === 'modal-save') { saveModal(); return; }
+  if (action === 'copy-query') { const text=document.querySelector('.code-box')?.textContent||''; navigator.clipboard?.writeText(text).then(()=>toast('0���HA4��� !��2R?)).catch(()=>toast('óv�W�SG�!��T%2R?)); return; }
+  if (action === 'remove-term') { const concept=state.concepts.find(item=>item.id===event.currentTarget.dataset.id); concept?.free.splice(Number(event.currentTarget.dataset.index),1); auditEvent('�ZΫ��#','���"�#�ˮ��Xʆ?,'Search','Search draft'); app(); toast('��,)�?); return; }
+  if (action === 'send') {
+    const ta = event.currentTarget.closest('.compose-box').querySelector('textarea');
+    if (!ta.value.trim()) return;
+    state.lastAiQuestion = ta.value.trim();
+    if (!state.credentialId) {
+      state.lastAiAnswer = '��f))���Q����37Q_An�?NVIDIA / OpenAI / DeepSeek / wD~��?;
+      app();
+      return;
+    }
+    const citationId = assistantFocusId(state, { currentScreenCase, includedForFulltext, screeningConflicts });
+    state.assistantBusy = true;
+    app();
+    LlmApi.chat({
+      credentialId: state.credentialId,
+      projectId: state.projectId,
+      context: { module: state.active, citationId: citationId || undefined },
+      messages: [{ role: 'user', content: state.lastAiQuestion }],
+    }).then((res) => {
+      state.lastAiAnswer = res.content || '';
+      state.assistantBusy = false;
+      app();
+      toast('�Ҁ\�bT2�+�"��e��');
+    }).catch((err) => {
+      state.assistantBusy = false;
+      app();
+      toast(err.message || '�37��d���');
+    });
+    return;
+  }
+  if (action.startsWith('assistant-') || action === 'run-fulltext-ai' || action === 'run-extract-ai') {
+    runAssistantAction(action === 'run-fulltext-ai' ? 'assistant-fulltext-ai' : action === 'run-extract-ai' ? 'assistant-extract-row' : action);
+    return;
+  }
+  if (action === 'next-conflict' || action === 'skip') {
+    const conflicts = screeningConflicts();
+    state.adjudicationResolution = null;
+    state.adjudicationIndex = conflicts.length ? ((state.adjudicationIndex || 0) + 1) % conflicts.length : 0;
+    app();
+    return;
+  }
+  if (action === 'next-fulltext') {
+    const included = includedForFulltext();
+    state.fulltextDecision = null;
+    state.fulltextIndex = included.length ? ((state.fulltextIndex || 0) + 1) % included.length : 0;
+    app();
+    return;
+  }
+  if (action === 'generate-draft') {
+    recomputeDerivedCounts();
+    const markdown = `# ${state.projectName}\n\n> Generated ${new Date().toISOString()}\n\n## Live project status\n\n- Citations: ${state.citations.length}\n- Screened: ${state.screeningCompleted}\n- Conflicts: ${state.adjudicationRemaining}\n- Extraction cells filled: ${state.extractionValues.filter((v)=>v.value).length}\n- RoB human judgements: ${state.robJudgements.filter((j)=>j.actor==='human').length}\n- Audit events: ${state.audits.length}\n`;
+    downloadFile('qiuzheng-report-draft.md', markdown, 'text/markdown;charset=utf-8');
+    auditEvent('Generated report draft', 'Draft built from live server-backed counts.', 'Synthesis', 'Report draft');
+    toast('��}ȸm^?);
+    return;
+  }
+  if (action === 'validate-search' || action === 'fix-search' || action === 'recheck' || action === 'workflow-detail' || action === 'replace-pdf') {
+    toast('��7c���*���HA�3!3�)X4,뫬�!�G��x�O�������37�?);
+    return;
+  }
+  if (action === 'seed-demo') {
+    ProjectApi.seedDemo(state.projectId).then(async () => {
+      await refreshProjectData();
+      app();
+      toast('U�HA��SO�GTlr*��ۢ�?�,G?);
+    }).catch((err) => toast(err.message));
+    return;
+  }
+  if (action === 'logout') { handleLogout(); return; }
+  if (action === 'switch-project') { state.boot = 'picker'; app(); return; }
+  if (action === 'batch-confirm') {
+    const unresolved = state.selectedBatch.filter((id) => !state.batchDecisions[id]);
+    if (unresolved.length) { toast(`i;A ${unresolved.length} �m��\�R��`); return; }
+    Promise.all(state.selectedBatch.map((id) => ScreeningApi.submitHuman(state.projectId, id, {
+      decision: state.batchDecisions[id],
+      criterionIds: [],
+    }))).then(async () => {
+      state.selectedBatch = [];
+      await refreshProjectData();
+      app();
+      toast('�Rz\�R�Ǹ�SO�GTl');
+    }).catch((err) => toast(err.message || '�Rz��趫�'));
+    return;
+  }
+  if (action === 'full-include') { state.fulltextDecision='Include'; persistState(); app(); return; }
+  if (action === 'full-exclude') { state.modal='exclusion'; state.modalPayload={}; app(); return; }
+  if (action === 'fulltext-decision') {
+    if (!state.fulltextDecision) return;
+    const included = includedForFulltext();
+    const citation = included[state.fulltextIndex || 0] || included[0];
+    if (!citation?.id) { toast('AYA\��O&���'); return; }
+    const decision = state.fulltextDecision.startsWith('Exclude') ? 'Exclude' : state.fulltextDecision;
+    ScreeningApi.submitFinal(state.projectId, citation.id, {
+      decision,
+      criterionIds: [],
+      rationale: 'Full-text eligibility check against current protocol criteria',
+      evidence: citation.abstract || '',
+    }).then(async () => {
+      state.fulltextDecision = null;
+      await refreshProjectData();
+      const next = includedForFulltext();
+      state.fulltextIndex = next.length ? ((state.fulltextIndex || 0) % next.length) : 0;
+      app();
+      toast('O&�R�Ǹ�SO�GTl');
+    }).catch((err) => toast(err.message || 'O&�R����趫�'));
+    return;
+  }
+  if (action === 'jump-evidence') { document.getElementById('evidence-methods')?.scrollIntoView({behavior:'smooth',block:'center'}); toast('�6�^ �B9�5p2X���yA'); return; }
+  if (action === 'select-rob-question') {
+    state.robQuestionKey = event.currentTarget.dataset.question;
+    const human = robJudgement(state.robQuestionKey, 'human');
+    const ai = robJudgement(state.robQuestionKey, 'ai');
+    state.robEvidenceDraft = human?.evidenceText || ai?.evidenceText || '';
+    app();
+    return;
+  }
+  if (action === 'rob-use-evidence') { state.robEvidenceDraft = event.currentTarget.dataset.evidence || ''; app(); toast('�Ң��^~�ċS���`�X���yA'); return; }
+  if (action === 'show-ai-rob-evidence') { const ai=robJudgement(state.robQuestionKey,'ai'); state.robEvidenceDraft=ai?.evidenceText||''; app(); return; }
+  if (action === 'save-rob') { saveRobJudgement(); return; }
+  if (action === 'run-rob-ai') { runRobAi(); return; }
+  if (action === 'next-study') {
+    const currentIndex = Math.max(0, state.robCitations.findIndex((item) => item.id === state.robCitationId));
+    const next = state.robCitations[(currentIndex + 1) % Math.max(state.robCitations.length, 1)];
+    if (next) refreshRobData(next.id).catch((err)=>toast(err.message || 'T�G���'));
+    return;
+  }
+  if (action === 'dedupe') { const seen=new Set(); const before=state.citations.length; state.citations=state.citations.filter(item=>{const key=(item.doi||item.title).toLowerCase(); if(seen.has(key)) return false; seen.add(key); return true;}); auditEvent('i/��XZx',`���?${before} ɤ�0�Z� ${before-state.citations.length} ��x����,'Library','Dedupe v1'); app(); toast(`XZx9~�,��?${before-state.citations.length} ��); return; }
+  if (action === 'export-library') { downloadFile('qiuzheng-citations.csv',toCsv(state.citations,[{key:'title',label:'Title'},{key:'authors',label:'Authors'},{key:'source',label:'Source'},{key:'doi',label:'DOI'},{key:'fullText',label:'Full text'}]),'text/csv;charset=utf-8'); toast('��4?CSV ���Q?); return; }
+  if (action === 'export-audit') { downloadFile('qiuzheng-audit.csv',toCsv(state.audits,[{key:'time',label:'Time'},{key:'actor',label:'Actor'},{key:'module',label:'Module'},{key:'action',label:'Action'},{key:'detail',label:'Detail'},{key:'version',label:'Version'}]),'text/csv;charset=utf-8'); toast('9�x��T���Q?); return; }
+  if (action === 'export-csv') { const rows=state.citations.map((citation)=>Object.fromEntries([['study',citation.title],...state.extractionFields.map((field)=>[field.key,extractionValue(citation.id,field.id)?.value||''])])); const columns=[{key:'study',label:'Study'},...state.extractionFields.map((field)=>({key:field.key,label:field.label}))]; downloadFile('qiuzheng-extraction.csv',toCsv(rows,columns),'text/csv;charset=utf-8'); toast('���0��A���5N��HA�,G CSV'); return; }
+  if (action === 'export') { recomputeDerivedCounts(); downloadFile('qiuzheng-project-status.json',JSON.stringify({project:state.projectName,exportedAt:new Date().toISOString(),screeningRemaining:moduleCount('screening'),adjudicationRemaining:state.adjudicationRemaining,citations:state.citations.length},null,2),'application/json'); toast('$-05�x�5N�'); return; }
+  if (action === 'report-card') { const reports=[['PRISMA }�','ip,0��5NƓ��x�?],['���"�#�0?,'5N�0��Қ�,'�I'],['.�p�?,'�蜻,GA����ɢ�?],['KӬ6��C��?,'�蜸mZ<� RoB R��'],['ۢ�9�?,'\�/AI P��'],['\؀P,Jm','0��R� ÷�']]; const report=reports[Number(event.currentTarget.dataset.report)]||reports[0]; state.modal='report'; state.modalPayload={title:report[0],description:report[1]}; app(); return; }
+  if (action === 'citation-more') { state.modal='citation'; state.modalPayload=state.citations.find(item=>item.id===event.currentTarget.dataset.id)||{}; app(); return; }
+  if (action === 'notification') { state.notificationsRead=true; persistState(); state.modal='notifications'; app(); return; }
+  if (action === 'team') { state.modal='team'; app(); return; }
+  if (action === 'history') { state.modal='history'; app(); return; }
+  const messages = {
+    'rob-guide':'0����c�d RoB 2 �����4�1��oR��Gt~X���yA�?,
+    'concept-more':'Қ����mZ:j��V?,
+  };
+  toast(messages[action] || '����6�0?);
+}
+
+async function handleAuthSubmit(event) {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.currentTarget));
+  state.authError = '';
+  try {
+    const result = state.authMode === 'register'
+      ? await AuthApi.register({ email: data.email, password: data.password, name: data.name })
+      : await AuthApi.login({ email: data.email, password: data.password });
+    setAccessToken(result.accessToken);
+    state.user = result.user;
+    await loadTeamsAndProjects();
+    state.boot = 'picker';
+    app();
+  } catch (err) {
+    state.authError = err.message || '��	���';
+    app();
+  }
+}
+
+async function handleCreateProject(event) {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.currentTarget));
+  try {
+    let teamId = state.teams[0]?.id;
+    if (!teamId) {
+      const created = await TeamApi.create({ name: `${state.user.name}'s Team` });
+      teamId = created.team.id;
+      state.teams = [created.team];
+    }
+    const { project } = await ProjectApi.create({ teamId, name: data.name.trim() });
+    await openProject(project.id);
+  } catch (err) {
+    toast(err.message || 'R����');
+  }
+}
+
+async function handleLogout() {
+  try { await AuthApi.logout(); } catch { /* ignore */ }
+  clearSession();
+  state = { ...freshState(), boot: 'auth' };
+  app();
+}
+
+async function loadTeamsAndProjects() {
+  const [teamsRes, projectsRes, credRes, presetsRes] = await Promise.all([
+    TeamApi.list(),
+    ProjectApi.list(),
+    CredentialApi.list(),
+    CredentialApi.presets(),
+  ]);
+  state.teams = teamsRes.teams || [];
+  state.projects = projectsRes.projects || [];
+  state.credentials = credRes.credentials || [];
+  state.llmPresets = presetsRes.presets || {};
+}
+
+async function openProject(projectId) {
+  state.projectId = projectId;
+  persistState();
+  await refreshProjectData();
+  state.boot = 'workspace';
+  if (!location.hash) history.replaceState(null, '', '#dashboard');
+  app();
+}
+
+async function refreshScreeningQueue() {
+  if (!state.projectId) return;
+  const queue = await ScreeningApi.queue(state.projectId, { take: '100' });
+  state.screeningQueue = mapCitations(queue.citations || []);
+  state.screeningCompleted = (queue.citations || []).filter((c) =>
+    (c.decisions || []).some((d) => d.actor === 'human'),
+  ).length;
+}
+
+async function refreshExtractionData() {
+  if (!state.projectId) return;
+  const [fieldsRes, valuesRes] = await Promise.all([
+    ExtractionApi.fields(state.projectId),
+    ExtractionApi.values(state.projectId),
+  ]);
+  state.extractionFields = fieldsRes.fields || [];
+  state.extractionValues = valuesRes.values || [];
+}
+
+async function refreshRobData(citationId = '') {
+  if (!state.projectId) return;
+  const result = await RiskOfBiasApi.get(state.projectId, citationId || undefined);
+  state.robDomains = result.domains || [];
+  state.robCitations = result.citations || [];
+  state.robCitationId = result.citationId || '';
+  state.robJudgements = result.judgements || [];
+  const allQuestions = state.robDomains.flatMap((domain) => domain.questions);
+  if (!allQuestions.some((question) => question.key === state.robQuestionKey)) state.robQuestionKey = allQuestions[0]?.key || '';
+  const human = robJudgement(state.robQuestionKey, 'human');
+  const ai = robJudgement(state.robQuestionKey, 'ai');
+  state.robEvidenceDraft = human?.evidenceText || ai?.evidenceText || '';
+  app();
+}
+
+async function saveRobJudgement() {
+  const { domain, question } = robQuestionContext();
+  if (!state.robCitationId || !domain || !question || !state.robEvidenceDraft) return;
+  const answer = document.getElementById('rob-answer')?.value;
+  const judgement = document.getElementById('rob-judgement')?.value;
+  const rationale = document.getElementById('rob-rationale')?.value || '';
+  try {
+    await RiskOfBiasApi.saveHuman(state.projectId, state.robCitationId, {
+      domainKey: domain.key,
+      questionKey: question.key,
+      answer,
+      judgement,
+      evidenceText: state.robEvidenceDraft,
+      sourceLocation: 'Abstract',
+      rationale,
+      confidence: 'High',
+    });
+    await refreshRobData(state.robCitationId);
+    toast(`${question.key} (�I���^�X���yA�mZ�);
+  } catch (err) {
+    toast(err.message || 'KӬ6��A��]Z:Q�?);
+  }
+}
+
+async function runRobAi() {
+  if (!state.credentialId) { toast('��f))���Q��37Q_A'); return; }
+  const { domain, question } = robQuestionContext();
+  if (!state.robCitationId || !domain || !question || state.robBusy) return;
+  state.robBusy = true;
+  app();
+  try {
+    await RiskOfBiasApi.runAi(state.projectId, state.robCitationId, {
+      domainKey: domain.key,
+      questionKey: question.key,
+      credentialId: state.credentialId,
+    });
+    await refreshRobData(state.robCitationId);
+    toast('AI R�Ǹ,S�6���~Ys`��X���yA');
+  } catch (err) {
+    toast(err.message || 'AI KӬ6��A��^Q�?);
+  } finally {
+    state.robBusy = false;
+    app();
+  }
+}
+
+async function refreshProjectData() {
+  const [projectRes, citationsRes, auditRes, protocolsRes, fieldsRes, valuesRes, robRes] = await Promise.all([
+    ProjectApi.get(state.projectId),
+    CitationApi.list(state.projectId, { take: '200' }),
+    AuditApi.list(state.projectId, { take: '100' }),
+    ProtocolApi.list(state.projectId),
+    ExtractionApi.fields(state.projectId),
+    ExtractionApi.values(state.projectId),
+    RiskOfBiasApi.get(state.projectId, state.robCitationId || undefined),
+  ]);
+  const project = projectRes.project;
+  state.role = projectRes.role;
+  state.projectName = project.name;
+  state.question = project.question || project.protocolVersions?.[0]?.question || '';
+  state.credentialId = project.credentialId || '';
+  state.criteria = mapCriteriaFromProtocol(project.protocolVersions?.[0] || protocolsRes.versions?.[0]);
+  state.protocolVersions = protocolsRes.versions || project.protocolVersions || [];
+  state.protocolVersion = state.protocolVersions[0]?.version || null;
+  state.projectMembers = project.members || [];
+  state.citations = mapCitations(citationsRes.citations || []);
+  state.audits = mapAudits(auditRes.events || []);
+  state.extractionFields = fieldsRes.fields || [];
+  state.extractionValues = valuesRes.values || [];
+  state.robDomains = robRes.domains || [];
+  state.robCitations = robRes.citations || [];
+  state.robCitationId = robRes.citationId || '';
+  state.robJudgements = robRes.judgements || [];
+  const firstRobQuestion = state.robDomains.flatMap((domain) => domain.questions)[0];
+  if (!state.robDomains.some((domain) => domain.questions.some((question) => question.key === state.robQuestionKey))) state.robQuestionKey = firstRobQuestion?.key || '';
+  const savedRobEvidence = robJudgement(state.robQuestionKey, 'human')?.evidenceText || robJudgement(state.robQuestionKey, 'ai')?.evidenceText;
+  state.robEvidenceDraft = savedRobEvidence || '';
+  await refreshScreeningQueue();
+  const credRes = await CredentialApi.list();
+  state.credentials = credRes.credentials || [];
+  recomputeDerivedCounts();
+}
+
+async function saveSettings(data) {
+  try {
+    if (data.apiKey?.trim()) {
+      const preset = state.llmPresets[data.provider];
+      const created = await CredentialApi.create({
+        name: data.credName?.trim() || `${data.provider} credential`,
+        provider: data.provider,
+        baseUrl: data.baseUrl?.trim() || undefined,
+        apiKey: data.apiKey.trim(),
+        defaultModel: data.defaultModel?.trim() || preset?.defaultModel || 'gpt-4o-mini',
+      });
+      state.credentials = [...state.credentials, created.credential];
+      data.credentialId = created.credential.id;
+      toast('API Key ���5�Z:�ȅ��?);
+    }
+    await ProjectApi.update(state.projectId, {
+      name: data.name.trim(),
+      reviewType: data.type,
+      collaborationMode: data.mode,
+      escalationRule: data.rule,
+      credentialId: data.credentialId || null,
+    });
+    state.projectName = data.name.trim();
+    state.credentialId = data.credentialId || '';
+    state.modal = null;
+    state.modalPayload = null;
+    await refreshProjectData();
+    app();
+    toast('$-0�g��mZ?);
+  } catch (err) {
+    toast(err.message || '��趫�');
+  }
+}
+
+async function boot() {
+  app();
+  if (!getAccessToken()) {
+    state.boot = 'auth';
+    app();
+    return;
+  }
+  try {
+    const me = await AuthApi.me();
+    state.user = me.user;
+    await loadTeamsAndProjects();
+    if (state.projectId && state.projects.some((p) => p.id === state.projectId)) {
+      await openProject(state.projectId);
+    } else {
+      state.boot = 'picker';
+      app();
+    }
+  } catch {
+    clearSession();
+    state.boot = 'auth';
+    app();
+  }
+}
+
+window.onhashchange = () => {
+  const page = location.hash.slice(1);
+  if (titleMap[page] && page !== state.active) { state.active = page; state.modal = null; state.modalPayload = null; app(); }
+};
+
+boot();

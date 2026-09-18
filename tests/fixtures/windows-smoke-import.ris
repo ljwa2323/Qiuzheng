@@ -1,0 +1,7 @@
+TY  - JOUR
+TI  - Windows native deployment smoke test for Qiuzheng
+AU  - Codex, Deployment
+PY  - 2026
+DO  - 10.0000/qiuzheng.windows.smoke
+AB  - This local record verifies file storage, Redis queueing, background parsing, and PostgreSQL persistence.
+ER  -

@@ -1,0 +1,12 @@
+github_token.txt
+*.token
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+coverage/
+.runtime/
+*.log
+.DS_Store
+apps/api/prisma/migrations/**/migration_lock.toml.bak

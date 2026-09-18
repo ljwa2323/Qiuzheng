@@ -1,0 +1,579 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TeamRole {
+  owner
+  admin
+  member
+}
+
+enum ProjectRole {
+  owner
+  lead
+  reviewer
+  viewer
+}
+
+enum DecisionValue {
+  Include
+  Exclude
+  Uncertain
+}
+
+enum DecisionActor {
+  human
+  human_b
+  ai
+  final
+}
+
+enum LlmProvider {
+  openai
+  azure
+  nvidia
+  deepseek
+  custom
+}
+
+enum JobStatus {
+  queued
+  active
+  completed
+  failed
+}
+
+enum ImportStatus {
+  pending
+  processing
+  completed
+  failed
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  refreshTokens        RefreshToken[]
+  teamMemberships      TeamMember[]
+  projectMembers       ProjectMember[]
+  auditEvents          AuditEvent[]
+  modelCredentials     ModelCredential[]
+  modelRuns            ModelRun[]
+  screeningDecisions   ScreeningDecision[]
+  jobs                 Job[]
+  extractionFields     ExtractionField[]
+  extractionValues     ExtractionValue[]
+  riskOfBiasJudgements RiskOfBiasJudgement[]
+}
+
+model RefreshToken {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  replacedBy String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members          TeamMember[]
+  projects         Project[]
+  modelCredentials ModelCredential[]
+}
+
+model TeamMember {
+  id        String   @id @default(cuid())
+  teamId    String
+  userId    String
+  role      TeamRole @default(member)
+  createdAt DateTime @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+}
+
+model Project {
+  id                String   @id @default(cuid())
+  teamId            String
+  name              String
+  reviewType        String   @default("Intervention")
+  collaborationMode String   @default("independent_parallel")
+  escalationRule    String   @default("Escalate when uncertainty is high, evidence is insufficient, criteria conflict, or error consequence is high.")
+  description       String   @default("")
+  question          String   @default("")
+  llmGlobalRules    String   @default("")
+  llmResponseLanguage String @default("zh")
+  pubmedApiKeyCipher String?
+  pubmedApiKeyIv     String?
+  pubmedApiKeyTag    String?
+  pubmedApiKeyLast4  String   @default("")
+  credentialId      String?
+  embeddingCredentialId String?
+  embeddingModel    String   @default("")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  team                 Team                  @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  credential           ModelCredential?      @relation("ProjectChatCredential", fields: [credentialId], references: [id], onDelete: SetNull)
+  embeddingCredential  ModelCredential?      @relation("ProjectEmbeddingCredential", fields: [embeddingCredentialId], references: [id], onDelete: SetNull)
+  members              ProjectMember[]
+  protocolVersions     ProtocolVersion[]
+  importBatches        ImportBatch[]
+  citations            Citation[]
+  screeningDecisions   ScreeningDecision[]
+  auditEvents          AuditEvent[]
+  modelRuns            ModelRun[]
+  jobs                 Job[]
+  storedFiles          StoredFile[]
+  extractionFields     ExtractionField[]
+  extractionValues     ExtractionValue[]
+  riskOfBiasJudgements RiskOfBiasJudgement[]
+  searchStrategy       SearchStrategy?
+  outcomeAnalyses      OutcomeAnalysis[]
+  effectRows           EffectRow[]
+  metaRuns             MetaRun[]
+  synthesisComposes    SynthesisCompose[]
+}
+
+model ProjectMember {
+  id        String      @id @default(cuid())
+  projectId String
+  userId    String
+  role      ProjectRole @default(reviewer)
+  createdAt DateTime    @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+}
+
+model ProtocolVersion {
+  id        String   @id @default(cuid())
+  projectId String
+  version   Int
+  question  String
+  notes     String?
+  picoP     String   @default("")
+  picoI     String   @default("")
+  picoC     String   @default("")
+  picoO     String   @default("")
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  project  Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  criteria EligibilityCriterion[]
+
+  @@unique([projectId, version])
+}
+
+model SearchStrategy {
+  id        String   @id @default(cuid())
+  projectId String   @unique
+  concepts  Json     @default("[]")
+  notes     String?
+  updatedBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model EligibilityCriterion {
+  id                String  @id @default(cuid())
+  protocolVersionId String
+  code              String
+  title             String
+  titleEn           String?
+  includeText       String
+  excludeText       String
+  sortOrder         Int     @default(0)
+
+  protocolVersion ProtocolVersion @relation(fields: [protocolVersionId], references: [id], onDelete: Cascade)
+
+  @@index([protocolVersionId])
+}
+
+model StoredFile {
+  id        String   @id @default(cuid())
+  projectId String?
+  bucket    String
+  objectKey String
+  filename  String
+  mimeType  String
+  sizeBytes Int
+  sha256    String
+  createdAt DateTime @default(now())
+
+  project       Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  importBatches ImportBatch[]
+  citationAsPdf Citation?     @relation("CitationPdf")
+  citationAsMd  Citation?     @relation("CitationMd")
+}
+
+model ImportBatch {
+  id             String       @id @default(cuid())
+  projectId      String
+  fileId         String?
+  sourceLabel    String
+  format         String
+  status         ImportStatus @default(pending)
+  totalCount     Int          @default(0)
+  createdCount   Int          @default(0)
+  duplicateCount Int          @default(0)
+  errorMessage   String?
+  createdBy      String?
+  createdAt      DateTime     @default(now())
+  completedAt    DateTime?
+
+  project   Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  file      StoredFile?      @relation(fields: [fileId], references: [id], onDelete: SetNull)
+  citations Citation[]
+  sources   CitationSource[]
+}
+
+model Citation {
+  id               String   @id @default(cuid())
+  projectId        String
+  importBatchId    String?
+  title            String
+  authors          String   @default("")
+  year             String   @default("")
+  abstract         String   @default("")
+  doi              String?
+  journal          String?
+  fullTextStatus   String   @default("Missing")
+  fullTextMarkdown String   @default("")
+  pdfFileId        String?  @unique
+  mdFileId         String?  @unique
+  completeness     Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  project              Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  importBatch          ImportBatch?          @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
+  pdfFile              StoredFile?           @relation("CitationPdf", fields: [pdfFileId], references: [id], onDelete: SetNull)
+  mdFile               StoredFile?           @relation("CitationMd", fields: [mdFileId], references: [id], onDelete: SetNull)
+  sources              CitationSource[]
+  decisions            ScreeningDecision[]
+  modelRuns            ModelRun[]
+  extractionValues     ExtractionValue[]
+  riskOfBiasJudgements RiskOfBiasJudgement[]
+  effectRows           EffectRow[]
+
+  @@index([projectId])
+  @@index([doi])
+}
+
+model CitationSource {
+  id            String  @id @default(cuid())
+  citationId    String
+  importBatchId String?
+  databaseName  String
+  rawPayload    Json?
+
+  citation    Citation     @relation(fields: [citationId], references: [id], onDelete: Cascade)
+  importBatch ImportBatch? @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
+}
+
+model ScreeningDecision {
+  id           String        @id @default(cuid())
+  projectId    String
+  citationId   String
+  actor        DecisionActor
+  decision     DecisionValue
+  criterionIds String[]      @default([])
+  evidence     String?
+  rationale    String?
+  confidence   String?
+  uncertainty  String?
+  userId       String?
+  modelRunId   String?
+  createdAt    DateTime      @default(now())
+
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  citation Citation  @relation(fields: [citationId], references: [id], onDelete: Cascade)
+  user     User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  modelRun ModelRun? @relation(fields: [modelRunId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, citationId])
+  @@index([citationId, actor])
+}
+
+model ExtractionField {
+  id          String   @id @default(cuid())
+  projectId   String
+  createdBy   String?
+  key         String
+  label       String
+  group       String   @default("characteristics")
+  dataType    String   @default("text")
+  description String   @default("")
+  options     String[] @default([])
+  required    Boolean  @default(false)
+  active      Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  creator User?             @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  values  ExtractionValue[]
+
+  @@unique([projectId, key])
+  @@index([projectId, group, sortOrder])
+}
+
+model ExtractionValue {
+  id             String   @id @default(cuid())
+  projectId      String
+  citationId     String
+  fieldId        String
+  value          String   @default("")
+  evidenceText   String?
+  sourceLocation String?
+  confidence     String?
+  verified       Boolean  @default(false)
+  createdBy      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  project  Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  citation Citation        @relation(fields: [citationId], references: [id], onDelete: Cascade)
+  field    ExtractionField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  creator  User?           @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@unique([citationId, fieldId])
+  @@index([projectId, citationId])
+}
+
+model RiskOfBiasJudgement {
+  id             String        @id @default(cuid())
+  projectId      String
+  citationId     String
+  domainKey      String
+  domainTitle    String
+  questionKey    String
+  questionText   String
+  actor          DecisionActor
+  reviewerKey    String
+  answer         String
+  judgement      String
+  evidenceText   String
+  evidenceSpans  Json         @default("[]")
+  sourceLocation String?
+  rationale      String?
+  confidence     String?
+  userId         String?
+  modelRunId     String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  citation Citation  @relation(fields: [citationId], references: [id], onDelete: Cascade)
+  user     User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  modelRun ModelRun? @relation(fields: [modelRunId], references: [id], onDelete: SetNull)
+
+  @@unique([citationId, domainKey, questionKey, actor, reviewerKey])
+  @@index([projectId, citationId])
+  @@index([citationId, domainKey])
+}
+
+model AuditEvent {
+  id        String   @id @default(cuid())
+  projectId String?
+  userId    String?
+  actorName String
+  action    String
+  detail    String
+  module    String
+  version   String?
+  createdAt DateTime @default(now())
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, createdAt])
+}
+
+model ModelCredential {
+  id           String      @id @default(cuid())
+  userId       String?
+  teamId       String?
+  name         String
+  provider     LlmProvider
+  baseUrl      String
+  apiKeyCipher String
+  apiKeyIv     String
+  apiKeyTag    String
+  apiKeyLast4  String
+  defaultModel String
+  thinkingEnabled Boolean    @default(false)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  user      User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team      Team?      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  projects  Project[]  @relation("ProjectChatCredential")
+  embeddingProjects Project[] @relation("ProjectEmbeddingCredential")
+  modelRuns ModelRun[]
+
+  @@index([userId])
+  @@index([teamId])
+}
+
+model ModelRun {
+  id            String      @id @default(cuid())
+  projectId     String?
+  citationId    String?
+  userId        String?
+  credentialId  String?
+  provider      LlmProvider
+  model         String
+  promptVersion String
+  status        String
+  latencyMs     Int?
+  inputTokens   Int?
+  outputTokens  Int?
+  requestMeta   Json?
+  responseMeta  Json?
+  errorMessage  String?
+  createdAt     DateTime    @default(now())
+
+  project              Project?              @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  citation             Citation?             @relation(fields: [citationId], references: [id], onDelete: SetNull)
+  user                 User?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
+  credential           ModelCredential?      @relation(fields: [credentialId], references: [id], onDelete: SetNull)
+  decisions            ScreeningDecision[]
+  riskOfBiasJudgements RiskOfBiasJudgement[]
+
+  @@index([projectId, createdAt])
+}
+
+model Job {
+  id           String    @id @default(cuid())
+  projectId    String?
+  userId       String?
+  type         String
+  status       JobStatus @default(queued)
+  payload      Json?
+  result       Json?
+  errorMessage String?
+  bullJobId    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  completedAt  DateTime?
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, status])
+}
+
+model OutcomeAnalysis {
+  id          String   @id @default(cuid())
+  projectId   String
+  name        String
+  measure     String   @default("OR")
+  modelPref   String   @default("random")
+  notes       String   @default("")
+  mappingJson Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  rows    EffectRow[]
+  runs    MetaRun[]
+
+  @@index([projectId])
+}
+
+model EffectRow {
+  id                String   @id @default(cuid())
+  projectId         String
+  outcomeAnalysisId String
+  citationId        String
+  label             String   @default("")
+  eventsT           Float?
+  nT                Float?
+  eventsC           Float?
+  nC                Float?
+  meanT             Float?
+  sdT               Float?
+  meanC             Float?
+  sdC               Float?
+  yi                Float?
+  sei               Float?
+  ciLow             Float?
+  ciHigh            Float?
+  subgroup          String   @default("")
+  source            String   @default("manual")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  outcomeAnalysis OutcomeAnalysis @relation(fields: [outcomeAnalysisId], references: [id], onDelete: Cascade)
+  citation        Citation        @relation(fields: [citationId], references: [id], onDelete: Cascade)
+
+  @@unique([outcomeAnalysisId, citationId])
+  @@index([projectId, outcomeAnalysisId])
+}
+
+model MetaRun {
+  id                String   @id @default(cuid())
+  projectId         String
+  outcomeAnalysisId String
+  status            String   @default("completed")
+  recipe            String   @default("fixed_random")
+  model             String   @default("random")
+  measure           String   @default("OR")
+  resultJson        Json
+  forestSvg         String   @default("")
+  workspacePath     String   @default("")
+  errorMessage      String?
+  createdBy         String?
+  createdAt         DateTime @default(now())
+
+  project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  outcomeAnalysis OutcomeAnalysis @relation(fields: [outcomeAnalysisId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+  @@index([outcomeAnalysisId, createdAt])
+}
+
+model SynthesisCompose {
+  id            String   @id @default(cuid())
+  projectId     String
+  queries       String[]
+  knowledgeJson Json
+  markdown      String   @default("")
+  title         String   @default("Evidence synthesis")
+  createdBy     String?
+  createdAt     DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+}

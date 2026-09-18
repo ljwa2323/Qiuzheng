@@ -1,57 +1,114 @@
 # Qiuzheng 求证
 
-求证是一个面向系统综述全生命周期的人机协作工作台。它不把大语言模型当作简单的自动筛选器，而是围绕任务风险、不确定性、证据充分性和错误后果，动态决定 AI 执行、人工判断、独立复核与冲突裁决。
+面向系统综述全生命周期的人机协作工作台。本仓库已从纯前端原型升级为完整的前后端单体仓库：账户权限、PostgreSQL 持久化、对象存储、BullMQ 异步任务，以及用户自备 API Key 的多厂商 OpenAI 兼容模型网关（含 NVIDIA NIM）。
 
-## 当前版本
+## 仓库结构
 
-这是产品初版的可交互前端原型，覆盖：
-
-- 项目总览与任务中心
-- 研究问题、PICO 与方案版本管理
-- 可编辑、可验证的检索策略构建器
-- 文献导入、去重和来源追踪
-- 盲法与辅助式题目摘要筛选
-- 全文证据定位与纳入标准核对
-- 带原文证据的数据提取表
-- 偏倚风险评价
-- 人工与 AI 冲突裁决
-- PRISMA、研究特征和人机协作指标报告
-- 完整审计记录
-
-当前数据均为演示数据，状态保存在浏览器内存中，不包含后端、账户系统或真实模型调用。
-
-## 本地运行
-
-本项目不依赖构建工具，可以直接打开 `index.html`。推荐启动本地静态服务：
-
-```bash
-python -m http.server 8080
+```
+apps/api          Fastify + Prisma API 与 Worker
+apps/web          Vite 前端工作区
+packages/shared   共享枚举、角色与筛选契约
+docker-compose.yml 一键启动全部依赖与服务
 ```
 
-然后访问 `http://localhost:8080`。
+## Windows 原生部署（不使用 Docker）
 
-## 产品原则
+仓库提供了一套 Windows 本机部署脚本。它使用项目目录内的独立 PostgreSQL 数据目录（端口 `55432`）、本机 Memurai/Redis（端口 `6379`）和 `.runtime/objects` 文件存储，不会改动系统已有的 PostgreSQL 数据库。
 
-每个 AI 输出尽量同时提供：
+前置条件：
 
-1. 决策
-2. 原文证据
-3. 对应方案标准
-4. 不确定性来源
-5. 建议操作
+- Node.js 22 或更高版本
+- PostgreSQL 15 或更高版本（需要命令行工具）
+- Memurai 或 Redis，监听 `127.0.0.1:6379`
+- 根目录已有配置完成的 `.env`
 
-高频任务以结构化工作区为主，聊天仅作为上下文辅助入口。默认支持人工与 AI 独立判断，避免在人工决策前展示 AI 结论导致锚定。
+一键构建、迁移、写入演示数据并启动：
 
-## 下一步开发
+```powershell
+npm run windows:start
+```
 
-建议按以下顺序推进：
+启动后访问：
 
-1. 接入用户、项目、成员与权限模型
-2. 建立 Protocol、Citation、Decision、Evidence、Audit Event 数据结构
-3. 接入 RIS、BibTeX、PubMed XML 与 PDF 解析
-4. 接入筛选模型和证据定位服务
-5. 实现队列路由、升级规则和冲突裁决
-6. 实现持久化、版本管理与批量任务
-7. 增加真实研究所需的实验分组与指标导出
+- Web：http://localhost:8080
+- API：http://localhost:3000
+- 就绪检查：http://localhost:3000/ready
 
-更详细的产品与技术说明见 `docs/PRODUCT_SPEC.md`。
+查看状态或停止服务：
+
+```powershell
+npm run windows:status
+npm run windows:stop
+```
+
+应用日志位于 `.runtime/logs`。本机文件存储和隔离数据库都位于 `.runtime`，该目录不会提交到 Git。
+
+## 快速开始（Docker）
+
+1. 复制环境变量：
+
+```powershell
+Copy-Item .env.example .env
+```
+
+2. 启动全部服务：
+
+```powershell
+docker compose up --build
+```
+
+3. 打开 http://localhost:8080
+
+可选种子账号（需在 API 容器内执行，或本机连上 Postgres 后执行）：
+
+```powershell
+npm run seed -w @qiuzheng/api
+```
+
+默认种子：`demo@qiuzheng.local` / `demo-password-123`
+
+## 本地开发（无 Docker 时需自备 Postgres / Redis / MinIO）
+
+```powershell
+Copy-Item .env.example .env
+npm install
+npm run build -w @qiuzheng/shared
+npm run prisma:generate -w @qiuzheng/api
+npm run prisma:deploy -w @qiuzheng/api
+npm run seed -w @qiuzheng/api
+npm run dev:api
+npm run dev:worker
+npm run dev:web
+```
+
+- Web: http://localhost:5173（Vite 代理 `/api` 到 3000）
+- API: http://localhost:3000
+- Health: http://localhost:3000/health
+
+## 核心能力
+
+- 邮箱注册登录，JWT Access + Refresh 轮换
+- Team / Project 成员与 RBAC（owner / lead / reviewer / viewer）
+- 方案版本、文献导入（RIS / BibTeX / CSV / PubMed XML）、筛选决策与审计落库
+- 项目级数据提取字段管理，字段、提取值、原文证据与核验状态持久化
+- RoB 2 signaling question 工作区，人工与 AI 判断均绑定可高亮的原文证据
+- API Key AES-256-GCM 加密存储；前端只选 `credentialId`，永不回显明文
+- LLM 预设：OpenAI、Azure、NVIDIA NIM、DeepSeek、Custom OpenAI-compatible endpoint
+- 单条 / 批量 AI 筛选任务（BullMQ）
+
+## 测试
+
+```powershell
+npm test
+```
+
+## 文档
+
+- [产品说明](docs/PRODUCT_SPEC.md)
+- [架构说明](docs/ARCHITECTURE.md)
+- [API 概览](docs/API.md)
+
+## 安全提示
+
+- 不要把 `github_token.txt`、`.env` 或任何 API Key 提交进仓库
+- 生产环境务必更换 `JWT_*` 与 `CREDENTIALS_MASTER_KEY`

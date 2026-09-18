@@ -1,0 +1,25 @@
+{
+  "name": "qiuzheng",
+  "version": "2.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev -w @qiuzheng/api",
+    "dev:web": "npm run dev -w @qiuzheng/web",
+    "dev:worker": "npm run worker -w @qiuzheng/api",
+    "build": "npm run build -w @qiuzheng/shared && npm run build -w @qiuzheng/api && npm run build -w @qiuzheng/web",
+    "test": "npm run test -w @qiuzheng/shared && npm run test -w @qiuzheng/api && npm run test -w @qiuzheng/web",
+    "db:migrate": "npm run prisma:migrate -w @qiuzheng/api",
+    "db:generate": "npm run prisma:generate -w @qiuzheng/api",
+    "seed": "npm run seed -w @qiuzheng/api",
+    "windows:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows-start.ps1",
+    "windows:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows-stop.ps1",
+    "windows:status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows-status.ps1"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
