@@ -36,7 +36,7 @@ export function createPages(ctx) {
     const protocolReady = state.criteria.length > 0 && state.question;
     const stats = [
       ['待筛选', String(screeningRemaining), '题目摘要队列', 'alert', 'amber'],
-      ['文献总量', String(totalCitations), '服务端持久化', 'library', 'blue'],
+      ['文献总量', String(totalCitations), '项目文献库', 'library', 'blue'],
       ['已配置模型', state.credentialId ? '是' : '否', state.user?.email || '', 'spark', 'green'],
       ['初筛冲突', String(state.adjudicationRemaining), '待裁决', 'users', 'red'],
     ];
@@ -51,20 +51,20 @@ export function createPages(ctx) {
       ['Meta', state.metaAnalyses?.length ? `${state.metaAnalyses.length} 个分析` : '待建立', state.metaAnalyses?.length ? '' : '', 'meta'],
       ['综合', afterFulltext || state.metaAnalyses?.length ? '可召回知识' : '等待上游', '', 'synthesis'],
     ];
-    return `${header('Review control center', `你好，${escapeHtml(state.user?.name || '')}`, '所有数字均来自当前项目的服务端数据。', `<button class="ghost-button" data-action="export">${icon('download')} 导出状态</button><button class="primary-button" data-nav="screening">继续筛选 ${icon('arrow')}</button>`)}
+    return `${header('Review control center', `你好，${escapeHtml(state.user?.name || '')}`, '当前项目的进展与待办一览。', `<button class="ghost-button" data-action="export">${icon('download')} 导出状态</button><button class="primary-button" data-nav="screening">继续筛选 ${icon('arrow')}</button>`)}
     <div class="stats-grid">${stats.map(([label, value, meta, ic, c]) => `<article class="stat-card"><div class="stat-top"><span>${label}</span><span class="stat-icon badge ${c}">${icon(ic)}</span></div><div class="stat-value">${value}</div><div class="stat-meta">${meta}</div></article>`).join('')}</div>
     <div class="grid-2">
       <section class="panel"><div class="panel-head"><div><h3>综述进度</h3><p>基于当前项目真实状态</p></div></div><div class="panel-body"><div class="workflow">
         ${workflow.map((x, i) => `<div class="workflow-step ${x[2]}" data-nav="${x[3]}"><div class="step-dot">${x[2] === 'done' ? icon('check', 13) : i + 1}</div><strong>${x[0]}</strong><small>${x[1]}</small></div>`).join('')}
       </div></div></section>
-      <section class="panel"><div class="panel-head"><div><h3>模型服务</h3><p>用户自备 API Key · OpenAI 兼容（含 NVIDIA）</p></div><button class="link-button" data-action="settings">配置</button></div><div class="panel-body"><p class="muted" style="font-size:12px;line-height:1.6">当前凭据：${state.credentialId ? escapeHtml(state.credentials.find((c) => c.id === state.credentialId)?.name || state.credentialId) : '未配置'}。密钥仅保存在服务端加密存储。</p></div></section>
+      <section class="panel"><div class="panel-head"><div><h3>模型服务</h3><p>连接你的模型凭据以启用 AI 协作</p></div><button class="link-button" data-action="settings">配置</button></div><div class="panel-body"><p class="muted" style="font-size:12px;line-height:1.6">当前凭据：${state.credentialId ? escapeHtml(state.credentials.find((c) => c.id === state.credentialId)?.name || state.credentialId) : '未配置'}</p></div></section>
     </div>
     <div class="grid-2">
       <section class="panel"><div class="panel-head"><div><h3>需要你处理</h3><p>按当前队列统计</p></div><button class="link-button" data-nav="screening">查看筛选</button></div><div class="panel-body task-list">
         ${taskRow('alert', 'amber', '题目摘要初筛', '尚未提交人工判断的记录', screeningRemaining, 'screening')}
         ${taskRow('users', 'red', '初筛冲突裁决', '双人 Diff 或人机判断不一致', state.adjudicationRemaining, 'adjudication')}
         ${taskRow('file', 'blue', '全文待处理', '已纳入但全文未齐', state.fulltextRemaining, 'fulltext')}
-        ${taskRow('history', 'green', '审计记录', '服务端操作轨迹', state.audits.length, 'audit')}
+        ${taskRow('history', 'green', '审计记录', '操作轨迹', state.audits.length, 'audit')}
       </div></section>
       <section class="panel"><div class="panel-head"><div><h3>最近活动</h3><p>来自 AuditEvent</p></div><button class="link-button" data-nav="audit">完整日志</button></div><div class="panel-body activity-list">
         ${(state.audits.slice(0, 4).map((e) => activity((e.actor || '?').slice(0, 2), e.action, e.detail, e.time)).join('')) || '<p class="muted">暂无审计事件。开始筛选或导入后会自动写入。</p>'}
@@ -194,7 +194,7 @@ export function createPages(ctx) {
     const allVisibleSelected = rows.length > 0 && selectedVisible.length === rows.length;
     const someVisibleSelected = selectedVisible.length > 0 && !allVisibleSelected;
     return `${header('Citation library', '管理检索结果', '导入、清理误导入文献。全文上传请在「全文筛选」阶段进行。', `<button class="ghost-button danger-text" data-action="library-delete-selected" ${selected.length ? '' : 'disabled'}>${icon('x')} 删除所选 ${selected.length ? `(${selected.length})` : ''}</button><button class="primary-button" data-action="import">${icon('upload')} 导入</button>`)}
-  <section class="panel"><div class="panel-head"><div><h3>全部文献</h3><p>${rows.length} 条当前记录${selected.length ? ` · 已选 ${selected.length}` : ''}</p></div><span class="badge green">服务端已保存</span></div><div class="panel-body"><div class="toolbar"><label class="filter-input">${icon('search')}<input data-filter="library-query" value="${escapeHtml(state.libraryQuery)}" placeholder="按题目、作者、摘要、DOI 搜索" aria-label="搜索文献" /></label><select class="select" data-filter="library-source" aria-label="按来源筛选">${['全部来源', ...sources].map((value) => `<option ${state.librarySource === value ? 'selected' : ''}>${escapeHtml(value)}</option>`).join('')}</select><select class="select" data-filter="library-fulltext" aria-label="按全文状态筛选">${['全部全文状态', '已获取', '缺失'].map((value) => `<option ${state.libraryFullText === value ? 'selected' : ''}>${value}</option>`).join('')}</select><span class="spacer"></span>${selected.length ? `<button class="ghost-button" data-action="library-clear-selection">取消全选</button>` : ''}<button class="ghost-button" data-action="export-library">${icon('download')} 导出</button></div></div><div class="table-wrap"><table><thead><tr><th class="check-col"><input type="checkbox" data-library-all ${allVisibleSelected ? 'checked' : ''} ${someVisibleSelected ? 'data-indeterminate="true"' : ''} aria-label="全选当前列表"></th><th>文献与摘要</th><th>首个来源</th><th>命中</th><th>全文状态</th><th></th></tr></thead><tbody>${rows.length ? rows.map((c) => {
+  <section class="panel"><div class="panel-head"><div><h3>全部文献</h3><p>${rows.length} 条当前记录${selected.length ? ` · 已选 ${selected.length}` : ''}</p></div></div><div class="panel-body"><div class="toolbar"><label class="filter-input">${icon('search')}<input data-filter="library-query" value="${escapeHtml(state.libraryQuery)}" placeholder="按题目、作者、摘要、DOI 搜索" aria-label="搜索文献" /></label><select class="select" data-filter="library-source" aria-label="按来源筛选">${['全部来源', ...sources].map((value) => `<option ${state.librarySource === value ? 'selected' : ''}>${escapeHtml(value)}</option>`).join('')}</select><select class="select" data-filter="library-fulltext" aria-label="按全文状态筛选">${['全部全文状态', '已获取', '缺失'].map((value) => `<option ${state.libraryFullText === value ? 'selected' : ''}>${value}</option>`).join('')}</select><span class="spacer"></span>${selected.length ? `<button class="ghost-button" data-action="library-clear-selection">取消全选</button>` : ''}<button class="ghost-button" data-action="export-library">${icon('download')} 导出</button></div></div><div class="table-wrap"><table><thead><tr><th class="check-col"><input type="checkbox" data-library-all ${allVisibleSelected ? 'checked' : ''} ${someVisibleSelected ? 'data-indeterminate="true"' : ''} aria-label="全选当前列表"></th><th>文献与摘要</th><th>首个来源</th><th>命中</th><th>全文状态</th><th></th></tr></thead><tbody>${rows.length ? rows.map((c) => {
       const abstractText = c.abstract || c.raw?.abstract || '';
       const abstractPreview = abstractText ? (abstractText.length > 220 ? `${abstractText.slice(0, 220)}…` : abstractText) : '无摘要';
       const fullOk = c.fullText === 'Full text' || c.hasMd;
@@ -496,7 +496,7 @@ export function createPages(ctx) {
     const computabilityBanner = computability
       ? `<div class="meta-computability ${computability.canRun ? 'ok' : 'bad'}"><strong>可计算性</strong>：${computability.computable}/${computability.total} 行可算${computability.notComputable ? ` · ${computability.notComputable} 行需转换或补全` : ''}${computability.canRun ? '' : ' · 运行已拦截'}。右侧助手可调用 rate_to_events / or_ci_to_yi_sei 等工具。</div>`
       : '';
-    return `${header('Meta-analysis', 'Meta 分析', '白名单统计配方：成对分析用 TypeScript 确定性计算；网状 Meta 调用本机 R/netmeta。', actions)}
+    return `${header('Meta-analysis', 'Meta 分析', '选择统计动作运行成对或网状分析；结果可召回至证据综合。', actions)}
   ${computabilityBanner}
   <div class="meta-layout"><aside class="panel meta-side"><div class="panel-head"><h3>结局分析</h3></div><div class="panel-body meta-analysis-list">${list}</div></aside>
   <div class="meta-main">${activeId ? `<section class="panel"><div class="panel-head"><div><h3>${escapeHtml(detail?.name || '效应表')}</h3><p>${escapeHtml(detail?.measure || '')} · 偏好模型 ${escapeHtml(detail?.modelPref || '')}</p></div></div><div class="panel-body">${table}</div></section>

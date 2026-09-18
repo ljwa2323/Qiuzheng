@@ -610,16 +610,67 @@ function topbar() {
   </header>`;
 }
 
+function renderLanding() {
+  const art = `<svg viewBox="0 0 360 360" fill="none" aria-hidden="true">
+    <circle cx="180" cy="180" r="118" stroke="rgba(156,214,204,0.22)" stroke-width="1"/>
+    <circle cx="180" cy="180" r="78" stroke="rgba(156,214,204,0.28)" stroke-width="1"/>
+    <path d="M96 210 L148 132 L214 168 L268 104" stroke="rgba(127,212,198,0.75)" stroke-width="1.4"/>
+    <path d="M118 250 L180 188 L246 236" stroke="rgba(184,220,134,0.55)" stroke-width="1.2"/>
+    <circle cx="96" cy="210" r="5" fill="#7fd4c6"/><circle cx="148" cy="132" r="5" fill="#b8dc86"/>
+    <circle cx="214" cy="168" r="6" fill="#9cd6cc"/><circle cx="268" cy="104" r="5" fill="#7fd4c6"/>
+    <circle cx="118" cy="250" r="4" fill="#9cd6cc"/><circle cx="180" cy="188" r="7" fill="#b8dc86"/>
+    <circle cx="246" cy="236" r="4" fill="#7fd4c6"/><circle cx="180" cy="180" r="3" fill="#f3fffc"/>
+  </svg>`;
+  return `<div class="landing-page">
+    <header class="landing-nav">
+      <button type="button" class="landing-brand" data-action="show-landing"><span class="brand-mark">证</span><strong>求证</strong></button>
+      <nav class="landing-nav-links" aria-label="落地页导航">
+        <a href="#top">主页</a>
+        <a href="#flow">综述流程</a>
+        <button type="button" data-action="show-auth" data-auth-mode="login">登录</button>
+        <button type="button" class="landing-nav-cta primary" data-action="show-auth" data-auth-mode="register">注册</button>
+      </nav>
+    </header>
+    <section class="landing-hero" id="top">
+      <div class="landing-hero-copy">
+        <p class="landing-kicker">Evidence Workspace</p>
+        <h1 class="landing-title">求证</h1>
+        <p class="landing-subtitle">系统综述人机协作工作台</p>
+        <p class="landing-lead">Intelligent Support for Evidence Synthesis — 把检索、筛选、提取、偏倚评估与 Meta 综合，收成一条可追踪的证据旅程。</p>
+        <div class="landing-actions">
+          <button type="button" class="primary-button" data-action="show-auth" data-auth-mode="login">登录后开始使用</button>
+          <button type="button" class="ghost-button" data-action="landing-scroll-flow">了解综述流程</button>
+        </div>
+      </div>
+      <div class="landing-hero-art">${art}</div>
+    </section>
+    <section class="landing-section" id="flow">
+      <h2>从问题到证据综合</h2>
+      <p>登录后进入项目工作区。每一步判断可审计、可回溯，AI 辅助但不替代人工决策。</p>
+      <div class="landing-flow">
+        <article><em>01</em><strong>方案与 PICO</strong><span>凝练研究问题与纳入排除标准</span></article>
+        <article><em>02</em><strong>检索策略</strong><span>概念块、MeSH 与多库查询式</span></article>
+        <article><em>03</em><strong>筛选裁决</strong><span>人机盲筛、冲突 Diff 与终裁</span></article>
+        <article><em>04</em><strong>提取与 RoB</strong><span>字段提取与偏倚原文绑定</span></article>
+        <article><em>05</em><strong>Meta 与综合</strong><span>统计配方、森林图与证据综合稿</span></article>
+      </div>
+    </section>
+  </div>`;
+}
+
 function renderAuth() {
   const isRegister = state.authMode === 'register';
-  return `<div class="auth-shell"><div class="auth-card"><div class="brand-mark">证</div><h1>${isRegister ? '创建账户' : '登录求证'}</h1><p class="muted">生产工作区：账户权限、服务端存储与真实模型网关</p>
+  return `<div class="auth-shell"><div class="auth-card">
+    <button type="button" class="auth-back" data-action="show-landing">${icon('chevron')} 返回介绍页</button>
+    <div class="brand-mark">证</div>
+    <h1>${isRegister ? '创建账户' : '登录求证'}</h1>
     ${state.authError ? `<div class="form-error">${escapeHtml(state.authError)}</div>` : ''}
     <form class="form-grid" id="auth-form">
       ${isRegister ? `<div class="field full"><label for="auth-name">姓名</label><input id="auth-name" name="name" required /></div>` : ''}
       <div class="field full"><label for="auth-email">邮箱</label><input id="auth-email" name="email" type="email" required autocomplete="username" /></div>
       <div class="field full"><label for="auth-password">密码</label><input id="auth-password" name="password" type="password" minlength="8" required autocomplete="${isRegister ? 'new-password' : 'current-password'}" /></div>
       <div class="field full"><label for="auth-captcha">验证码</label><div class="captcha-row"><input id="auth-captcha" name="captchaCode" required maxlength="8" autocomplete="off" spellcheck="false" placeholder="输入图中字符" aria-label="验证码" /><input type="hidden" name="captchaId" value="${escapeHtml(state.captchaId || '')}" /><button type="button" class="captcha-image-button" data-action="refresh-captcha" title="点击刷新验证码" aria-label="刷新验证码">${state.captchaImage ? `<img src="${escapeHtml(state.captchaImage)}" alt="验证码" width="140" height="44" />` : `<span class="muted">${state.captchaLoading ? '加载中…' : '点击获取'}</span>`}</button></div></div>
-      <div class="field full"><button class="primary-button" style="width:100%" type="submit">${isRegister ? '注册' : '登录'}</button></div>
+      <div class="field full"><button class="primary-button" style="width:100%" type="submit">${isRegister ? '注册并进入' : '登录'}</button></div>
     </form>
     <button class="link-button" data-action="toggle-auth">${isRegister ? '已有账户？登录' : '没有账户？注册'}</button>
   </div></div>`;
@@ -712,10 +763,40 @@ function app() {
     document.getElementById('app').innerHTML = `<div class="auth-shell"><div class="auth-card"><p>正在加载…</p></div></div>`;
     return;
   }
+  if (state.boot === 'landing') {
+    document.getElementById('app').innerHTML = renderLanding();
+    document.title = '求证 · 系统综述人机协作工作台';
+    document.querySelectorAll('[data-action="show-landing"]').forEach((el) => {
+      el.addEventListener('click', () => {
+        state.boot = 'landing';
+        state.authError = '';
+        app();
+      });
+    });
+    document.querySelectorAll('[data-action="show-auth"]').forEach((el) => {
+      el.addEventListener('click', async () => {
+        state.authMode = el.dataset.authMode === 'register' ? 'register' : 'login';
+        state.authError = '';
+        state.boot = 'auth';
+        app();
+        await refreshAuthCaptcha();
+        if (state.boot === 'auth') app();
+      });
+    });
+    document.querySelector('[data-action="landing-scroll-flow"]')?.addEventListener('click', () => {
+      document.getElementById('flow')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return;
+  }
   if (state.boot === 'auth') {
     document.getElementById('app').innerHTML = renderAuth();
-    document.title = '登录 · 求证';
+    document.title = `${state.authMode === 'register' ? '注册' : '登录'} · 求证`;
     document.getElementById('auth-form')?.addEventListener('submit', handleAuthSubmit);
+    document.querySelector('[data-action="show-landing"]')?.addEventListener('click', () => {
+      state.boot = 'landing';
+      state.authError = '';
+      app();
+    });
     document.querySelector('[data-action="toggle-auth"]')?.addEventListener('click', async () => {
       state.authMode = state.authMode === 'login' ? 'register' : 'login';
       state.authError = '';
@@ -3317,7 +3398,7 @@ async function handleCreateProject(event) {
 async function handleLogout() {
   try { await AuthApi.logout(); } catch { /* ignore */ }
   clearSession();
-  state = { ...freshState(), boot: 'auth' };
+  state = { ...freshState(), boot: 'landing' };
   app();
 }
 
@@ -3678,7 +3759,7 @@ async function saveSettings(data) {
 async function boot() {
   app();
   if (!getAccessToken()) {
-    state.boot = 'auth';
+    state.boot = 'landing';
     app();
     return;
   }
@@ -3694,7 +3775,7 @@ async function boot() {
     }
   } catch {
     clearSession();
-    state.boot = 'auth';
+    state.boot = 'landing';
     app();
   }
 }
@@ -3705,9 +3786,9 @@ window.onhashchange = () => {
 };
 
 setSessionExpiredHandler((message) => {
-  if (state.boot === 'auth') return;
+  if (state.boot === 'auth' || state.boot === 'landing') return;
   clearSession();
-  state = { ...freshState(), boot: 'auth', authError: message || '登录已过期，请重新登录' };
+  state = { ...freshState(), boot: 'auth', authMode: 'login', authError: message || '登录已过期，请重新登录' };
   app();
 });
 
