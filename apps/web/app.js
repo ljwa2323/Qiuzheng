@@ -114,7 +114,7 @@ function freshState() {
     hasPubmedApiKey: false, pubmedApiKeyLast4: '',
     criteria: [], concepts: structuredClone(defaultConcepts),
     citations: [], citationsTotal: 0, audits: [], screeningDecisions: {}, screeningCompleted: 0, batchDecisions: {}, selectedBatch: [], selectedLibrary: [],
-    adjudicationIndex: 0, fulltextIndex: 0, fulltextViewMode: 'auto', fulltextListView: 'auto', fulltextEvidenceQuery: '', fulltextEvidenceCriterionId: '', projectMembers: [], protocolVersion: null, protocolVersions: [],
+    adjudicationIndex: 0, fulltextIndex: 0, fulltextViewMode: 'auto', fulltextListView: 'auto', fulltextReviewId: '', fulltextEvidenceQuery: '', fulltextEvidenceCriterionId: '', projectMembers: [], protocolVersion: null, protocolVersions: [],
     lastAiQuestion: '', lastAiAnswer: '', role: 'viewer', credentialId: '',
     embeddingCredentialId: '', embeddingModel: '', rankedEvidence: [],
     assistantBusy: false, assistantResult: null, adjudicationSuggestion: null,
@@ -496,6 +496,23 @@ function decidedFulltext() {
   return queue.filter((item) => latestFulltextFinal(item));
 }
 
+/** Active full-text record: pending queue item, or a completed item opened for review/upload. */
+function currentFulltextCitation() {
+  if (state.fulltextReviewId) {
+    const queue = state.screeningQueue.length ? state.screeningQueue : state.citations;
+    return queue.find((item) => item.id === state.fulltextReviewId)
+      || decidedFulltext().find((item) => item.id === state.fulltextReviewId)
+      || null;
+  }
+  const pending = includedForFulltext();
+  return pending[state.fulltextIndex || 0] || pending[0] || null;
+}
+
+/** Navigation list for prev/next on the full-text page. */
+function fulltextNavList() {
+  return state.fulltextReviewId ? decidedFulltext() : includedForFulltext();
+}
+
 function recomputeDerivedCounts() {
   const conflicts = screeningConflicts();
   state.adjudicationRemaining = conflicts.length;
@@ -559,6 +576,7 @@ function navigate(page) {
   if (page !== 'fulltext') {
     state.fulltextEvidenceQuery = '';
     state.fulltextEvidenceCriterionId = '';
+    state.fulltextReviewId = '';
   }
   if (location.hash !== `#${page}`) history.pushState(null, '', `#${page}`);
   window.scrollTo(0, 0);
@@ -1463,6 +1481,10 @@ function bindEvents() {
   document.querySelectorAll('[data-extraction-view]').forEach(el => el.addEventListener('click', () => { state.extractionView = el.dataset.extractionView; persistState(); app(); }));
   document.querySelectorAll('[data-fulltext-list-view]').forEach(el => el.addEventListener('click', () => {
     state.fulltextListView = el.dataset.fulltextListView;
+    state.fulltextReviewId = '';
+    state.fulltextDecision = null;
+    state.fulltextEvidenceQuery = '';
+    state.fulltextEvidenceCriterionId = '';
     persistState();
     app();
   }));
@@ -1744,8 +1766,7 @@ async function handleFulltextFile(event) {
 function bindPdfViewer() {
   const frame = document.querySelector('[data-pdf-frame]');
   if (!frame || !state.projectId) return;
-  const included = includedForFulltext();
-  const citation = included[state.fulltextIndex || 0] || included[0];
+  const citation = currentFulltextCitation();
   if (!citation?.hasPdf) return;
   CitationApi.getPdfBlob(state.projectId, citation.id)
     .then((blob) => {
@@ -2630,8 +2651,7 @@ async function submitFulltextDecision() {
     toast('请先选择纳入或排除');
     return;
   }
-  const included = includedForFulltext();
-  const citation = included[state.fulltextIndex || 0] || included[0];
+  const citation = currentFulltextCitation();
   if (!citation?.id) {
     toast('没有可提交的全文记录');
     return;
@@ -2640,6 +2660,7 @@ async function submitFulltextDecision() {
   const rationale = state.fulltextDecision.startsWith('Exclude')
     ? `[fulltext] ${state.fulltextDecision}`
     : '[fulltext] Full-text eligibility check against current protocol criteria';
+  const reviewing = Boolean(state.fulltextReviewId);
   try {
     await ScreeningApi.submitFinal(state.projectId, citation.id, {
       decision,
@@ -2649,8 +2670,13 @@ async function submitFulltextDecision() {
     });
     state.fulltextDecision = null;
     await refreshProjectData();
-    const next = includedForFulltext();
-    state.fulltextIndex = next.length ? Math.min(state.fulltextIndex || 0, next.length - 1) : 0;
+    if (reviewing) {
+      state.fulltextReviewId = citation.id;
+      state.fulltextListView = 'done';
+    } else {
+      const next = includedForFulltext();
+      state.fulltextIndex = next.length ? Math.min(state.fulltextIndex || 0, next.length - 1) : 0;
+    }
     app();
     toast(decision === 'Include' ? '已纳入并写入服务端' : '已排除并写入服务端');
   } catch (err) {
@@ -2820,23 +2846,60 @@ async function handleAction(action, event) {
     return;
   }
   if (action === 'prev-fulltext') {
-    const included = includedForFulltext();
+    const list = fulltextNavList();
     state.fulltextDecision = null;
     state.fulltextEvidenceQuery = '';
     state.fulltextEvidenceCriterionId = '';
     state.fulltextViewMode = 'auto';
-    const len = included.length;
-    state.fulltextIndex = len ? ((state.fulltextIndex || 0) - 1 + len) % len : 0;
+    const len = list.length;
+    if (!len) { app(); return; }
+    if (state.fulltextReviewId) {
+      const idx = Math.max(0, list.findIndex((item) => item.id === state.fulltextReviewId));
+      const next = list[(idx - 1 + len) % len];
+      state.fulltextReviewId = next?.id || '';
+    } else {
+      state.fulltextIndex = ((state.fulltextIndex || 0) - 1 + len) % len;
+    }
     app();
     return;
   }
   if (action === 'next-fulltext') {
-    const included = includedForFulltext();
+    const list = fulltextNavList();
     state.fulltextDecision = null;
     state.fulltextEvidenceQuery = '';
     state.fulltextEvidenceCriterionId = '';
     state.fulltextViewMode = 'auto';
-    state.fulltextIndex = included.length ? ((state.fulltextIndex || 0) + 1) % included.length : 0;
+    if (!list.length) { app(); return; }
+    if (state.fulltextReviewId) {
+      const idx = Math.max(0, list.findIndex((item) => item.id === state.fulltextReviewId));
+      const next = list[(idx + 1) % list.length];
+      state.fulltextReviewId = next?.id || '';
+    } else {
+      state.fulltextIndex = ((state.fulltextIndex || 0) + 1) % list.length;
+    }
+    app();
+    return;
+  }
+  if (action === 'open-fulltext-review') {
+    const citationId = event.currentTarget.dataset.id || '';
+    if (!citationId) return;
+    state.fulltextListView = 'done';
+    state.fulltextReviewId = citationId;
+    state.fulltextDecision = null;
+    state.fulltextEvidenceQuery = '';
+    state.fulltextEvidenceCriterionId = '';
+    state.fulltextViewMode = 'auto';
+    persistState();
+    app();
+    return;
+  }
+  if (action === 'close-fulltext-review') {
+    state.fulltextReviewId = '';
+    state.fulltextDecision = null;
+    state.fulltextEvidenceQuery = '';
+    state.fulltextEvidenceCriterionId = '';
+    state.fulltextListView = 'done';
+    persistState();
     app();
     return;
   }
@@ -3102,8 +3165,7 @@ async function handleAction(action, event) {
   if (action === 'jump-evidence') {
     const criterionId = event.currentTarget.dataset.id || '';
     const criterion = state.criteria.find((item) => item.id === criterionId);
-    const included = includedForFulltext();
-    const citation = included[state.fulltextIndex || 0] || included[0];
+    const citation = currentFulltextCitation();
     const sourceText = citation?.fullTextMarkdown || citation?.raw?.fullTextMarkdown || citation?.abstract || citation?.raw?.abstract || '';
     state.fulltextEvidenceCriterionId = criterionId;
     state.fulltextViewMode = 'text';

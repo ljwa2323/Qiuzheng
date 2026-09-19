@@ -1316,6 +1316,15 @@ table tr.is-selected { background: rgba(45, 106, 98, 0.06); }
 }
 .picker-card .muted { color: var(--ink-3); margin: 0; }
 .picker-card .primary-button { box-shadow: none; }
+.picker-card .ghost-button {
+  color: var(--ink);
+  border-color: var(--line);
+  background: #fff;
+}
+.picker-card .ghost-button:hover {
+  border-color: #b9c9c4;
+  background: var(--surface-2);
+}
 .picker-section {
   border: 1px solid var(--line);
   border-radius: 14px;
