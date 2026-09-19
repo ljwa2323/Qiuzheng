@@ -1,5 +1,13 @@
 const ACCESS_KEY = 'qiuzheng.accessToken';
 
+/** External API prefix for nginx subpath (e.g. /qiuzheng-api). Empty uses same-origin /api via Vite proxy. */
+const API_PREFIX = String(import.meta.env.VITE_API_PREFIX || '').replace(/\/$/, '');
+
+function withApiPrefix(path) {
+  if (!path.startsWith('/')) return path;
+  return `${API_PREFIX}${path}`;
+}
+
 let accessToken = localStorage.getItem(ACCESS_KEY) || '';
 let onSessionExpired = null;
 
@@ -31,7 +39,7 @@ function notifySessionExpired(message) {
 }
 
 async function refreshAccessToken() {
-  const response = await fetch('/api/auth/refresh', {
+  const response = await fetch(withApiPrefix('/api/auth/refresh'), {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
@@ -53,7 +61,7 @@ export async function api(path, options = {}) {
   }
   if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
 
-  let response = await fetch(path, {
+  let response = await fetch(withApiPrefix(path), {
     ...options,
     headers,
     credentials: 'include',
@@ -211,10 +219,13 @@ export const CitationApi = {
     const headers = new Headers();
     const token = getAccessToken();
     if (token) headers.set('Authorization', `Bearer ${token}`);
-    const response = await fetch(`/api/projects/${projectId}/citations/${citationId}/fulltext/pdf`, {
-      headers,
-      credentials: 'include',
-    });
+    const response = await fetch(
+      withApiPrefix(`/api/projects/${projectId}/citations/${citationId}/fulltext/pdf`),
+      {
+        headers,
+        credentials: 'include',
+      },
+    );
     if (!response.ok) {
       const message = (await response.json().catch(() => ({})))?.error?.message || response.statusText;
       throw new Error(message || 'PDF download failed');

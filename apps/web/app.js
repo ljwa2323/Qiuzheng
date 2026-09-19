@@ -114,7 +114,7 @@ function freshState() {
     hasPubmedApiKey: false, pubmedApiKeyLast4: '',
     criteria: [], concepts: structuredClone(defaultConcepts),
     citations: [], citationsTotal: 0, audits: [], screeningDecisions: {}, screeningCompleted: 0, batchDecisions: {}, selectedBatch: [], selectedLibrary: [],
-    adjudicationIndex: 0, fulltextIndex: 0, fulltextViewMode: 'auto', fulltextEvidenceQuery: '', fulltextEvidenceCriterionId: '', projectMembers: [], protocolVersion: null, protocolVersions: [],
+    adjudicationIndex: 0, fulltextIndex: 0, fulltextViewMode: 'auto', fulltextListView: 'auto', fulltextEvidenceQuery: '', fulltextEvidenceCriterionId: '', projectMembers: [], protocolVersion: null, protocolVersions: [],
     lastAiQuestion: '', lastAiAnswer: '', role: 'viewer', credentialId: '',
     embeddingCredentialId: '', embeddingModel: '', rankedEvidence: [],
     assistantBusy: false, assistantResult: null, adjudicationSuggestion: null,
@@ -490,6 +490,12 @@ function includedAfterFulltext() {
   return queue.filter((item) => latestFulltextFinal(item)?.decision === 'Include');
 }
 
+/** Studies that already have a full-text final decision (Include or Exclude). */
+function decidedFulltext() {
+  const queue = state.screeningQueue.length ? state.screeningQueue : state.citations;
+  return queue.filter((item) => latestFulltextFinal(item));
+}
+
 function recomputeDerivedCounts() {
   const conflicts = screeningConflicts();
   state.adjudicationRemaining = conflicts.length;
@@ -561,7 +567,10 @@ function navigate(page) {
 
 function moduleCount(id, fallback) {
   if (id === 'screening') return Math.max(0, (state.citations.length || 0) - (state.screeningCompleted || 0));
-  if (id === 'fulltext') return includedForFulltext().length;
+  if (id === 'fulltext') {
+    const pending = includedForFulltext().length;
+    return pending > 0 ? pending : decidedFulltext().length;
+  }
   if (id === 'extraction' || id === 'rob') return includedAfterFulltext().length;
   if (id === 'adjudication') return state.adjudicationRemaining;
   if (id === 'library') return state.citations.length;
@@ -907,6 +916,8 @@ const pagesApi = createPages({
   currentScreenCase,
   includedForFulltext,
   includedAfterFulltext,
+  decidedFulltext,
+  latestFulltextFinal,
   screeningConflicts,
   recomputeDerivedCounts,
   moduleCount,
@@ -1450,6 +1461,11 @@ function bindEvents() {
     app();
   }));
   document.querySelectorAll('[data-extraction-view]').forEach(el => el.addEventListener('click', () => { state.extractionView = el.dataset.extractionView; persistState(); app(); }));
+  document.querySelectorAll('[data-fulltext-list-view]').forEach(el => el.addEventListener('click', () => {
+    state.fulltextListView = el.dataset.fulltextListView;
+    persistState();
+    app();
+  }));
   bindFieldManagerDrag();
   document.querySelectorAll('[data-screen-mode]').forEach(el => el.addEventListener('click', () => { state.screenMode = el.dataset.screenMode; persistState(); app(); }));
   document.querySelectorAll('[data-decision]').forEach(el => el.addEventListener('click', () => submitScreenDecision(el.dataset.decision)));

@@ -10,6 +10,10 @@ export const DEFAULT_EXTRACTION_FIELDS = [
 ] as const;
 
 export async function ensureDefaultExtractionFields(projectId: string, userId: string) {
+  // Only seed once for an empty project. Do not recreate keys after the user deletes them.
+  const existing = await prisma.extractionField.count({ where: { projectId } });
+  if (existing > 0) return;
+
   await prisma.extractionField.createMany({
     data: DEFAULT_EXTRACTION_FIELDS.map((field) => ({
       ...field,

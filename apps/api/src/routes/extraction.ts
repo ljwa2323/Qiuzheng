@@ -188,7 +188,7 @@ export async function extractionRoutes(app: FastifyInstance) {
       assertCanWrite(membership.role);
       const body = fieldSchema.parse(request.body);
       const existing = await prisma.extractionField.findUnique({ where: { projectId_key: { projectId, key: body.key } } });
-      if (existing) throw new AppError(409, 'field_key_taken', 'Field key already exists in this project');
+      if (existing?.active) throw new AppError(409, 'field_key_taken', 'Field key already exists in this project');
       let sortOrder = body.sortOrder;
       if (sortOrder == null) {
         const max = await prisma.extractionField.aggregate({
@@ -197,21 +197,36 @@ export async function extractionRoutes(app: FastifyInstance) {
         });
         sortOrder = (max._max.sortOrder ?? -10) + 10;
       }
-      const field = await prisma.extractionField.create({
-        data: {
-          key: body.key,
-          label: body.label,
-          dataType: body.dataType,
-          description: body.description,
-          options: body.options,
-          required: body.required,
-          sortOrder,
-          group: 'characteristics',
-          projectId,
-          createdBy: request.user!.id,
-        },
-        include: { creator: { select: { id: true, name: true } } },
-      });
+      const field = existing
+        ? await prisma.extractionField.update({
+            where: { id: existing.id },
+            data: {
+              label: body.label,
+              dataType: body.dataType,
+              description: body.description,
+              options: body.options,
+              required: body.required,
+              sortOrder,
+              group: 'characteristics',
+              active: true,
+            },
+            include: { creator: { select: { id: true, name: true } } },
+          })
+        : await prisma.extractionField.create({
+            data: {
+              key: body.key,
+              label: body.label,
+              dataType: body.dataType,
+              description: body.description,
+              options: body.options,
+              required: body.required,
+              sortOrder,
+              group: 'characteristics',
+              projectId,
+              createdBy: request.user!.id,
+            },
+            include: { creator: { select: { id: true, name: true } } },
+          });
       await writeAudit({ projectId, userId: request.user!.id, actorName: request.user!.name, action: 'Created extraction field', detail: `${field.label} (${field.key})`, module: 'Extraction' });
       return reply.status(201).send({ field });
     } catch (err) {
@@ -299,22 +314,29 @@ export async function extractionRoutes(app: FastifyInstance) {
       const membership = await requireProjectMember(projectId, request.user!.id, 'reviewer');
       assertCanWrite(membership.role);
       const current = await prisma.extractionField.findFirst({
-        where: { id: fieldId, projectId },
+        where: { id: fieldId, projectId, active: true },
         include: { _count: { select: { values: true } } },
       });
       if (!current) throw new AppError(404, 'not_found', 'Extraction field not found');
       const valueCount = current._count.values;
-      // Hard delete: ExtractionValue rows cascade via FK onDelete: Cascade.
-      await prisma.extractionField.delete({ where: { id: fieldId } });
+      // Soft-delete the field so default-key seeding cannot recreate it, and clear values.
+      const deletedValues = await prisma.$transaction(async (tx) => {
+        const removed = await tx.extractionValue.deleteMany({ where: { fieldId } });
+        await tx.extractionField.update({
+          where: { id: fieldId },
+          data: { active: false },
+        });
+        return removed.count;
+      });
       await writeAudit({
         projectId,
         userId: request.user!.id,
         actorName: request.user!.name,
         action: 'Deleted extraction field',
-        detail: `${current.label} (${current.key}) · removed ${valueCount} value(s)`,
+        detail: `${current.label} (${current.key}) · removed ${deletedValues} value(s)`,
         module: 'Extraction',
       });
-      return { ok: true, deletedValues: valueCount };
+      return { ok: true, deletedValues: deletedValues || valueCount };
     } catch (err) {
       return sendError(reply, err);
     }

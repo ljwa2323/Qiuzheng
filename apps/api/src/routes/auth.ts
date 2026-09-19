@@ -36,18 +36,23 @@ async function assertCaptcha(captchaId: string, captchaCode: string) {
   if (!ok) throw new AppError(400, 'invalid_captcha', '验证码错误或已过期，请刷新后重试');
 }
 
+function refreshCookiePath() {
+  const prefix = (process.env.PUBLIC_API_PREFIX || '').replace(/\/$/, '');
+  return `${prefix}/api/auth`;
+}
+
 function setRefreshCookie(reply: { setCookie: Function }, token: string) {
   reply.setCookie('refreshToken', token, {
     httpOnly: true,
     sameSite: 'lax',
-    path: '/api/auth',
+    path: refreshCookiePath(),
     secure: process.env.NODE_ENV === 'production',
     maxAge: Math.floor(refreshTtlMs() / 1000),
   });
 }
 
 function clearRefreshCookie(reply: { clearCookie: Function }) {
-  reply.clearCookie('refreshToken', { path: '/api/auth' });
+  reply.clearCookie('refreshToken', { path: refreshCookiePath() });
 }
 
 async function issueTokens(user: { id: string; email: string; name: string }) {

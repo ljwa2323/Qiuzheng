@@ -3,7 +3,7 @@ import { highlightEvidenceHtml } from './core.js';
 export function createPages(ctx) {
   const {
     state, icon, escapeHtml, header, titleMap, matchesQuery,
-    currentScreenCase, includedForFulltext, includedAfterFulltext, screeningConflicts,
+    currentScreenCase, includedForFulltext, includedAfterFulltext, decidedFulltext, latestFulltextFinal, screeningConflicts,
     recomputeDerivedCounts, moduleCount, robJudgement, robQuestionContext, sourceSentences,
     extractionValue,
   } = ctx;
@@ -41,12 +41,14 @@ export function createPages(ctx) {
       ['初筛冲突', String(state.adjudicationRemaining), '待裁决', 'users', 'red'],
     ];
     const afterFulltext = includedAfterFulltext().length;
+    const fulltextPending = includedForFulltext().length;
+    const fulltextDone = decidedFulltext().length;
     const workflow = [
       ['方案', protocolReady ? '已就绪' : '待完善', protocolReady ? 'done' : '', 'protocol'],
       ['检索', `${state.concepts.length} 个概念`, state.concepts.length ? 'done' : '', 'search'],
       ['初筛', screeningRemaining ? `剩余 ${screeningRemaining}` : (totalCitations ? '已完成' : '无文献'), screeningRemaining ? 'active' : '', 'screening'],
       ['裁决', state.adjudicationRemaining ? `待决 ${state.adjudicationRemaining}` : '无冲突', state.adjudicationRemaining ? 'active' : (screeningRemaining ? '' : 'done'), 'adjudication'],
-      ['全文', includedForFulltext().length ? `待审 ${includedForFulltext().length}` : (afterFulltext ? '已完成' : '等待初筛'), includedForFulltext().length ? 'active' : '', 'fulltext'],
+      ['全文', fulltextPending ? `待审 ${fulltextPending}` : (fulltextDone ? `已审 ${fulltextDone}` : '等待初筛'), fulltextPending ? 'active' : (fulltextDone ? 'done' : ''), 'fulltext'],
       ['提取', afterFulltext ? `${afterFulltext} 篇可提取` : '等待全文纳入', afterFulltext ? '' : '', 'extraction'],
       ['Meta', state.metaAnalyses?.length ? `${state.metaAnalyses.length} 个分析` : '待建立', state.metaAnalyses?.length ? '' : '', 'meta'],
       ['综合', afterFulltext || state.metaAnalyses?.length ? '可召回知识' : '等待上游', '', 'synthesis'],
@@ -252,10 +254,37 @@ export function createPages(ctx) {
   }
 
   function fulltext() {
-    const included = includedForFulltext();
+    const pending = includedForFulltext();
+    const decided = decidedFulltext();
+    // Explicit tab choice wins; only 'auto' (default) picks done when queue is empty.
+    const listView = state.fulltextListView === 'queue' || state.fulltextListView === 'done'
+      ? state.fulltextListView
+      : (pending.length ? 'queue' : (decided.length ? 'done' : 'queue'));
+
+    const listSwitch = `<div class="module-switch"><button class="${listView === 'queue' ? 'active' : ''}" data-fulltext-list-view="queue">${icon('file')} 待审 <span>${pending.length}</span></button><button class="${listView === 'done' ? 'active' : ''}" data-fulltext-list-view="done">${icon('check')} 已完成 <span>${decided.length}</span></button></div>`;
+
+    if (listView === 'done') {
+      if (!decided.length) {
+        return `${header('Full text screening', '全文证据核对', '查看已完成的全文筛选结果；待审队列为空时会自动切到本页。')}${listSwitch}<div class="empty-state">${icon('file')}<h3>尚无全文筛选结果</h3><p>完成待审全文的纳入/排除后，结果会出现在这里。</p><button class="primary-button" data-fulltext-list-view="queue">查看待审</button></div>`;
+      }
+      const includedCount = decided.filter((item) => latestFulltextFinal(item)?.decision === 'Include').length;
+      const excludedCount = decided.length - includedCount;
+      const rows = decided.map((item) => {
+        const final = latestFulltextFinal(item);
+        const decision = final?.decision || '';
+        const badge = decision === 'Include' ? 'green' : decision === 'Exclude' ? 'red' : 'amber';
+        const label = decision === 'Include' ? '纳入' : decision === 'Exclude' ? '排除' : (decision || '未知');
+        const rationale = String(final?.rationale || '').replace(/^\[fulltext\]\s*/i, '').trim();
+        const hasFiles = Boolean(item.hasPdf || item.hasMd || item.fullTextMarkdown || item.raw?.fullTextMarkdown);
+        return `<tr><td class="title-cell wide"><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.authors || '')}</small></td><td><span class="badge ${badge}">${escapeHtml(label)}</span></td><td><span class="badge ${hasFiles ? 'blue' : 'amber'}">${hasFiles ? '已上传' : '无全文'}</span></td><td class="title-cell"><p class="abstract-preview">${escapeHtml(rationale || '—')}</p></td><td class="row-actions">${decision === 'Include' ? `<button class="ghost-button" data-nav="extraction">去提取</button>` : ''}</td></tr>`;
+      }).join('');
+      return `${header('Full text screening', '全文证据核对', '已完成的全文筛选结果（纳入进入数据提取，排除保留在此以便复核）。')}${listSwitch}<div class="stats-grid">${[['已审全文', decided.length], ['纳入', includedCount], ['排除', excludedCount], ['待审', pending.length]].map((x) => `<div class="stat-card"><div class="stat-top">${x[0]}</div><div class="stat-value">${x[1]}</div></div>`).join('')}</div><section class="panel"><div class="panel-head"><div><h3>全文筛选结果</h3><p>${decided.length} 条已终裁</p></div>${pending.length ? `<button class="ghost-button" data-fulltext-list-view="queue">继续待审 ${pending.length}</button>` : ''}</div><div class="panel-body"><div class="table-wrap"><table><thead><tr><th class="wide">文献</th><th>决定</th><th>全文</th><th>理由</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div></section>`;
+    }
+
+    const included = pending;
     const citation = included[state.fulltextIndex || 0] || included[0];
     if (!citation) {
-      return `${header('Full text screening', '全文证据核对', '仅展示题目摘要已纳入、且尚无全文终裁的记录。若有人机冲突请先裁决。')}<div class="empty-state">${icon('file')}<h3>暂无待审全文</h3><p>请先完成初筛纳入，并解决冲突裁决后再进行全文筛选。</p><button class="primary-button" data-nav="screening">去初筛</button><button class="ghost-button" data-nav="adjudication">去裁决</button></div>`;
+      return `${header('Full text screening', '全文证据核对', '仅展示题目摘要已纳入、且尚无全文终裁的记录。若有人机冲突请先裁决。')}${listSwitch}<div class="empty-state">${icon('file')}<h3>暂无待审全文</h3><p>${decided.length ? `已有 ${decided.length} 条全文筛选结果，可切换到「已完成」查看状态。` : '请先完成初筛纳入，并解决冲突裁决后再进行全文筛选。'}</p>${decided.length ? `<button class="primary-button" data-fulltext-list-view="done">查看已完成结果</button>` : '<button class="primary-button" data-nav="screening">去初筛</button><button class="ghost-button" data-nav="adjudication">去裁决</button>'}</div>`;
     }
     const mdText = citation.fullTextMarkdown || citation.raw?.fullTextMarkdown || '';
     const sourceText = mdText || citation.abstract || citation.raw?.abstract || '';
@@ -286,7 +315,7 @@ export function createPages(ctx) {
     const viewer = viewMode === 'pdf' && hasPdf ? pdfViewer : textViewer;
     const hasFulltextFiles = hasPdf || Boolean(mdText.trim());
     const navHint = included.length > 1 ? `${(state.fulltextIndex || 0) + 1} / ${included.length}` : '';
-    return `${header('Full text screening', '全文证据核对', 'PDF 与 Markdown 分开展示；点击右侧标准会经 Embedding（低阈值）+ LLM 定位原文并高亮。', `<button class="ghost-button" data-action="upload-fulltext" data-id="${citation.id}">${icon('upload')} 上传全文</button><button class="ghost-button danger-text" data-action="delete-fulltext" data-id="${citation.id}" ${hasFulltextFiles ? '' : 'disabled'}>${icon('x')} 删除全文</button><button class="ghost-button" data-action="prev-fulltext" ${included.length > 1 ? '' : 'disabled'}>上一条</button><button class="ghost-button" data-action="next-fulltext" ${included.length > 1 ? '' : 'disabled'}>下一条</button>`)}${state.fulltextDecision ? `<div class="status-banner">正在提交：<strong>${escapeHtml(state.fulltextDecision)}</strong>${navHint ? ` · ${navHint}` : ''}</div>` : (navHint ? `<div class="status-banner muted">待审记录 ${navHint}</div>` : '')}${viewSwitch}<div class="pdf-layout">${viewer}<aside class="eligibility-card"><div class="panel-head"><div><h3>Eligibility</h3><p>${state.criteria.length} 项标准</p></div></div>${criteriaRows}<div style="padding:14px"><div class="decision-group"><button class="decision-button include ${state.fulltextDecision === 'Include' ? 'selected' : ''}" data-action="full-include">纳入</button><button class="decision-button exclude ${state.fulltextDecision?.startsWith('Exclude') ? 'selected' : ''}" data-action="full-exclude">排除</button></div><p class="muted" style="margin-top:10px;font-size:11px;line-height:1.45">点击纳入会立即写入；排除需填写理由后提交。</p></div></aside></div>`;
+    return `${header('Full text screening', '全文证据核对', 'PDF 与 Markdown 分开展示；点击右侧标准会经 Embedding（低阈值）+ LLM 定位原文并高亮。', `<button class="ghost-button" data-action="upload-fulltext" data-id="${citation.id}">${icon('upload')} 上传全文</button><button class="ghost-button danger-text" data-action="delete-fulltext" data-id="${citation.id}" ${hasFulltextFiles ? '' : 'disabled'}>${icon('x')} 删除全文</button><button class="ghost-button" data-action="prev-fulltext" ${included.length > 1 ? '' : 'disabled'}>上一条</button><button class="ghost-button" data-action="next-fulltext" ${included.length > 1 ? '' : 'disabled'}>下一条</button>`)}${listSwitch}${state.fulltextDecision ? `<div class="status-banner">正在提交：<strong>${escapeHtml(state.fulltextDecision)}</strong>${navHint ? ` · ${navHint}` : ''}</div>` : (navHint ? `<div class="status-banner muted">待审记录 ${navHint}</div>` : '')}${viewSwitch}<div class="pdf-layout">${viewer}<aside class="eligibility-card"><div class="panel-head"><div><h3>Eligibility</h3><p>${state.criteria.length} 项标准</p></div></div>${criteriaRows}<div style="padding:14px"><div class="decision-group"><button class="decision-button include ${state.fulltextDecision === 'Include' ? 'selected' : ''}" data-action="full-include">纳入</button><button class="decision-button exclude ${state.fulltextDecision?.startsWith('Exclude') ? 'selected' : ''}" data-action="full-exclude">排除</button></div><p class="muted" style="margin-top:10px;font-size:11px;line-height:1.45">点击纳入会立即写入；排除需填写理由后提交。</p></div></aside></div>`;
   }
 
   function extractionFieldManager() {

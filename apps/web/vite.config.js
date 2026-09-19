@@ -1,33 +1,44 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 
-const proxy = {
-  '/api': {
-    target: 'http://localhost:3000',
-    changeOrigin: true,
-  },
-  '/health': {
-    target: 'http://localhost:3000',
-    changeOrigin: true,
-  },
-  '/ready': {
-    target: 'http://localhost:3000',
-    changeOrigin: true,
-  },
-};
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  const apiTarget = env.VITE_API_PROXY_TARGET || 'http://localhost:3000';
+  const base = env.VITE_BASE_PATH || '/';
+  const allowedHosts = env.VITE_ALLOWED_HOSTS
+    ? env.VITE_ALLOWED_HOSTS.split(',').map((h) => h.trim()).filter(Boolean)
+    : true;
 
-export default defineConfig({
-  server: {
-    port: 5173,
-    proxy,
-  },
-  preview: {
-    host: '127.0.0.1',
-    port: 8080,
-    strictPort: true,
-    proxy,
-  },
-  build: {
-    outDir: 'dist',
-    emptyOutDir: true,
-  },
+  const proxy = {
+    '/api': {
+      target: apiTarget,
+      changeOrigin: true,
+    },
+    '/health': {
+      target: apiTarget,
+      changeOrigin: true,
+    },
+    '/ready': {
+      target: apiTarget,
+      changeOrigin: true,
+    },
+  };
+
+  return {
+    base,
+    server: {
+      port: 5173,
+      proxy,
+    },
+    preview: {
+      host: '127.0.0.1',
+      port: Number(env.VITE_PREVIEW_PORT || 8080),
+      strictPort: true,
+      allowedHosts,
+      proxy,
+    },
+    build: {
+      outDir: 'dist',
+      emptyOutDir: true,
+    },
+  };
 });
