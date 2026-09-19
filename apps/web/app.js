@@ -720,51 +720,41 @@ function topbar() {
 }
 
 function renderLanding() {
-  const art = `<svg class="landing-orbit" viewBox="0 0 420 420" fill="none" aria-hidden="true">
-    <defs>
-      <radialGradient id="landing-glow" cx="50%" cy="48%" r="52%">
-        <stop offset="0%" stop-color="rgba(127,212,198,0.28)"/>
-        <stop offset="55%" stop-color="rgba(72,180,168,0.08)"/>
-        <stop offset="100%" stop-color="rgba(7,24,22,0)"/>
-      </radialGradient>
-      <linearGradient id="landing-arc" x1="70" y1="300" x2="340" y2="90" gradientUnits="userSpaceOnUse">
-        <stop offset="0%" stop-color="#7fd4c6"/>
-        <stop offset="55%" stop-color="#b8dc86"/>
-        <stop offset="100%" stop-color="#9cd6cc"/>
-      </linearGradient>
-      <filter id="landing-soft" x="-40%" y="-40%" width="180%" height="180%">
-        <feGaussianBlur stdDeviation="2.2" result="b"/>
-        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
-      </filter>
-    </defs>
-    <circle cx="210" cy="210" r="168" fill="url(#landing-glow)"/>
-    <circle class="landing-ring landing-ring-a" cx="210" cy="210" r="148" stroke="rgba(156,214,204,0.18)" stroke-width="1" stroke-dasharray="3 10"/>
-    <circle class="landing-ring landing-ring-b" cx="210" cy="210" r="112" stroke="rgba(184,220,134,0.22)" stroke-width="1.2"/>
-    <circle class="landing-ring landing-ring-c" cx="210" cy="210" r="74" stroke="rgba(127,212,198,0.35)" stroke-width="1.4"/>
-    <path d="M92 268 C132 232, 158 196, 186 168 C214 140, 248 118, 292 98" stroke="url(#landing-arc)" stroke-width="2" stroke-linecap="round" opacity="0.9" filter="url(#landing-soft)"/>
-    <path d="M118 302 C156 276, 188 248, 220 214 C248 188, 278 176, 318 168" stroke="rgba(184,220,134,0.45)" stroke-width="1.4" stroke-linecap="round" stroke-dasharray="2 7"/>
-    <g filter="url(#landing-soft)">
-      <circle class="landing-node" cx="92" cy="268" r="7" fill="#7fd4c6"/>
-      <circle class="landing-node" cx="148" cy="214" r="5.5" fill="#9cd6cc"/>
-      <circle class="landing-node" cx="186" cy="168" r="8" fill="#b8dc86"/>
-      <circle class="landing-node" cx="248" cy="128" r="6" fill="#7fd4c6"/>
-      <circle class="landing-node" cx="292" cy="98" r="7.5" fill="#b8dc86"/>
-      <circle class="landing-node" cx="118" cy="302" r="4.5" fill="#9cd6cc"/>
-      <circle class="landing-node" cx="220" cy="214" r="5" fill="#7fd4c6"/>
-      <circle class="landing-node" cx="318" cy="168" r="5" fill="#9cd6cc"/>
-    </g>
-    <g class="landing-core">
-      <circle cx="210" cy="210" r="28" fill="rgba(13,47,43,0.82)" stroke="rgba(184,220,134,0.55)" stroke-width="1.5"/>
-      <circle cx="210" cy="210" r="18" fill="rgba(127,212,198,0.16)" stroke="rgba(127,212,198,0.45)" stroke-width="1"/>
-      <text x="210" y="217" text-anchor="middle" fill="#e8f4f1" font-size="18" font-family="Noto Sans SC, sans-serif" font-weight="700">证</text>
-    </g>
-    <g class="landing-labels" fill="#9ebdb5" font-size="11" font-family="Noto Sans SC, sans-serif" letter-spacing="0.04em">
-      <text x="58" y="276">检索</text>
-      <text x="164" y="152">筛选</text>
-      <text x="304" y="90">提取</text>
-      <text x="328" y="184">Meta</text>
-    </g>
-  </svg>`;
+  const stages = [
+    ['语义检索', 100],
+    ['智能筛选', 100],
+    ['全文核对', 100],
+    ['数据提取', 82],
+    ['质量评价', 45],
+  ];
+  const art = `<div class="landing-stage" aria-hidden="true">
+    <div class="landing-stage-board">
+      <header class="landing-stage-head"><span class="landing-stage-dot"></span><strong>系统评价</strong></header>
+      <ul class="landing-stage-list">${stages.map(([label, pct], i) => `
+        <li>
+          <span class="landing-stage-label">${label}</span>
+          <span class="landing-stage-track"><span class="landing-stage-fill" style="--pct:${pct}%; --delay:${0.12 + i * 0.08}s"></span></span>
+          <span class="landing-stage-pct">${pct}%</span>
+        </li>`).join('')}
+      </ul>
+    </div>
+    <aside class="landing-float landing-float-meta">
+      <small>效应量</small>
+      <strong>SMD 0.42</strong>
+      <span>95% CI [0.18, 0.66]</span>
+      <footer><em>p &lt; 0.001</em><em>I<sup>2</sup> = 32%</em></footer>
+    </aside>
+    <aside class="landing-float landing-float-agent">
+      <small>AGENT 初筛</small>
+      <div class="landing-agent-row"><span class="landing-avatar a">A</span><b>纳入</b><span class="landing-ok">${icon('check', 14)}</span></div>
+      <div class="landing-agent-row"><span class="landing-avatar b">B</span><b>纳入</b><span class="landing-ok">${icon('check', 14)}</span></div>
+      <div class="landing-agent-foot"><span class="landing-ok soft">${icon('check', 12)}</span>一致结论：纳入</div>
+    </aside>
+    <aside class="landing-float landing-float-prisma">
+      <span class="landing-prisma-icon">${icon('report', 16)}</span>
+      <div><strong>PRISMA 2020</strong><span><i></i>合规</span></div>
+    </aside>
+  </div>`;
   return `<div class="landing-page">
     <header class="landing-nav">
       <button type="button" class="landing-brand" data-action="show-landing"><span class="brand-mark">证</span><strong>求证</strong></button>
@@ -787,7 +777,7 @@ function renderLanding() {
           <button type="button" class="ghost-button" data-action="landing-scroll-flow">了解综述流程</button>
         </div>
       </div>
-      <div class="landing-hero-art" aria-hidden="true">${art}</div>
+      <div class="landing-hero-art">${art}</div>
     </section>
     <section class="landing-section" id="flow">
       <h2>从问题到证据综合</h2>
