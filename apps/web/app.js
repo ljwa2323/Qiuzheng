@@ -122,7 +122,7 @@ function freshState() {
     searchStrategyBasis: 'both', pendingMeshMap: null, searchStrategyDirty: false, searchStrategyUpdatedAt: null,
     pico: { p: '', i: '', c: '', o: '' },
     assistantJob: null, notificationsRead: true,
-    extractionFields: [], extractionValues: [], robDomains: [], robCitations: [], robJudgements: [], robCitationId: '', robQuestionKey: 'D1.1', robEvidenceSpans: [], robPendingSelection: '', robBusy: false,
+    extractionFields: [], extractionValues: [], robDomains: [], robCitations: [], robJudgements: [], robSummaryJudgements: [], robCitationId: '', robQuestionKey: 'D1.1', robEvidenceSpans: [], robPendingSelection: '', robBusy: false, robView: 'overview', robAllProgress: null,
     metaAnalyses: [], metaAnalysisId: '', metaDetail: null, metaBusy: false, metaComputability: null,
     synthesisQueries: ['protocol', 'screening', 'extraction', 'rob', 'meta'],
     synthesisKnowledge: null, synthesisComposes: [], synthesisBusy: false, synthesisUseLlm: false,
@@ -142,6 +142,7 @@ function persistState() {
     localStorage.setItem(UI_PREFS_KEY, JSON.stringify({
       screenMode: state.screenMode,
       extractionView: state.extractionView,
+      robView: state.robView,
       db: state.db,
       searchStrategyBasis: state.searchStrategyBasis,
     }));
@@ -436,9 +437,13 @@ function buildScreeningConflict(item) {
   return null;
 }
 
-function isFulltextFinalDecision(decision) {
+function isFulltextTaggedDecision(decision) {
   const rationale = String(decision?.rationale || '');
   return /\[fulltext\]/i.test(rationale) || /^Full-text eligibility/i.test(rationale);
+}
+
+function isFulltextFinalDecision(decision) {
+  return decision?.actor === 'final' && isFulltextTaggedDecision(decision);
 }
 
 function isAdjudicationFinalDecision(decision) {
@@ -450,19 +455,46 @@ function screeningDecisions(item) {
   return item?.raw?.decisions || [];
 }
 
+/** Prefer newest by createdAt regardless of API sort order. */
+function latestDecisionRow(rows) {
+  if (!rows?.length) return null;
+  return rows.reduce((best, row) => {
+    if (!best) return row;
+    const a = Date.parse(row.createdAt || '') || 0;
+    const b = Date.parse(best.createdAt || '') || 0;
+    return a >= b ? row : best;
+  }, null);
+}
+
 function latestActorDecision(item, actor) {
-  const rows = screeningDecisions(item).filter((d) => d.actor === actor);
-  return rows.length ? rows[rows.length - 1] : null;
+  let rows = screeningDecisions(item).filter((d) => d.actor === actor);
+  // Full-text AI suggestions reuse actor=ai but must not pollute title/abstract conflicts.
+  if (actor === 'ai') {
+    rows = rows.filter((d) => !isFulltextTaggedDecision(d));
+  }
+  return latestDecisionRow(rows);
 }
 
 function latestFulltextFinal(item) {
-  const rows = screeningDecisions(item).filter((d) => d.actor === 'final' && isFulltextFinalDecision(d));
-  return rows.length ? rows[rows.length - 1] : null;
+  return latestDecisionRow(
+    screeningDecisions(item).filter((d) => d.actor === 'final' && isFulltextTaggedDecision(d)),
+  );
 }
 
 function latestAdjudicationFinal(item) {
-  const rows = screeningDecisions(item).filter((d) => d.actor === 'final' && isAdjudicationFinalDecision(d));
-  return rows.length ? rows[rows.length - 1] : null;
+  const adj = latestDecisionRow(
+    screeningDecisions(item).filter((d) => d.actor === 'final' && isAdjudicationFinalDecision(d)),
+  );
+  if (!adj) return null;
+  const peers = [
+    latestActorDecision(item, 'human'),
+    latestActorDecision(item, 'human_b'),
+    latestActorDecision(item, 'ai'),
+  ].filter(Boolean);
+  const maxPeer = Math.max(0, ...peers.map((p) => Date.parse(p.createdAt || '') || 0));
+  const adjAt = Date.parse(adj.createdAt || '') || 0;
+  if (maxPeer > adjAt) return null;
+  return adj;
 }
 
 /** Title/abstract stage Include (after adjudication if any). */
@@ -484,16 +516,66 @@ function includedForFulltext() {
   return queue.filter((item) => titleAbstractIncluded(item) && !latestFulltextFinal(item));
 }
 
-/** Studies with full-text final Include — eligible for extraction / RoB. */
+/** Studies with TA Include and full-text final Include — eligible for extraction / RoB / Meta. */
 function includedAfterFulltext() {
   const queue = state.screeningQueue.length ? state.screeningQueue : state.citations;
-  return queue.filter((item) => latestFulltextFinal(item)?.decision === 'Include');
+  return queue.filter(
+    (item) => titleAbstractIncluded(item) && latestFulltextFinal(item)?.decision === 'Include',
+  );
 }
 
 /** Studies that already have a full-text final decision (Include or Exclude). */
 function decidedFulltext() {
   const queue = state.screeningQueue.length ? state.screeningQueue : state.citations;
   return queue.filter((item) => latestFulltextFinal(item));
+}
+
+function citationHasExtraction(citationId) {
+  return state.extractionValues.some((v) => v.citationId === citationId && String(v.value || '').trim());
+}
+
+function citationHasRob(citationId) {
+  return state.robJudgements.some((j) => j.citationId === citationId)
+    || state.robSummaryJudgements.some((j) => j.citationId === citationId);
+}
+
+/** Downstream lock flags for a paper (per-citation, not project-wide). */
+function citationWorkflowLock(item) {
+  if (!item?.id) {
+    return {
+      locksTitleAbstract: false,
+      locksFulltextDecisionChange: false,
+      hasFulltextFinal: false,
+      hasExtraction: false,
+      hasRob: false,
+      stages: [],
+    };
+  }
+  const hasFulltextFinal = Boolean(latestFulltextFinal(item));
+  const hasExtraction = citationHasExtraction(item.id);
+  const hasRob = citationHasRob(item.id);
+  const stages = [];
+  if (hasFulltextFinal) stages.push('fulltext');
+  if (hasExtraction) stages.push('extraction');
+  if (hasRob) stages.push('rob');
+  return {
+    locksTitleAbstract: hasFulltextFinal || hasExtraction || hasRob,
+    locksFulltextDecisionChange: hasExtraction || hasRob,
+    hasFulltextFinal,
+    hasExtraction,
+    hasRob,
+    stages,
+  };
+}
+
+function workflowLockBanner(item, kind) {
+  const lock = citationWorkflowLock(item);
+  if (kind === 'title_abstract' && !lock.locksTitleAbstract) return '';
+  if (kind === 'fulltext' && !lock.locksFulltextDecisionChange) return '';
+  const stageLabel = lock.stages.length ? lock.stages.join(' / ') : 'downstream';
+  const to = kind === 'fulltext' ? 'fulltext_pending' : 'title_abstract';
+  const toLabel = kind === 'fulltext' ? '全文待审' : '初筛';
+  return `<div class="status-banner"><strong>上游已锁定</strong>：该文献已有下游工作（${escapeHtml(stageLabel)}）。改判前请先回退本篇到「${escapeHtml(toLabel)}」。 <button class="ghost-button" data-action="rollback-citation" data-id="${escapeHtml(item.id)}" data-to="${to}">回退到${escapeHtml(toLabel)}</button></div>`;
 }
 
 /** Active full-text record: pending queue item, or a completed item opened for review/upload. */
@@ -537,8 +619,8 @@ function currentScreenCase() {
       evidence: '',
     };
   }
-  const human = item.raw?.decisions?.find((d) => d.actor === 'human');
-  const ai = item.raw?.decisions?.find((d) => d.actor === 'ai');
+  const human = latestActorDecision(item, 'human');
+  const ai = latestActorDecision(item, 'ai');
   return {
     id: item.id,
     title: item.title,
@@ -638,15 +720,50 @@ function topbar() {
 }
 
 function renderLanding() {
-  const art = `<svg viewBox="0 0 360 360" fill="none" aria-hidden="true">
-    <circle cx="180" cy="180" r="118" stroke="rgba(156,214,204,0.22)" stroke-width="1"/>
-    <circle cx="180" cy="180" r="78" stroke="rgba(156,214,204,0.28)" stroke-width="1"/>
-    <path d="M96 210 L148 132 L214 168 L268 104" stroke="rgba(127,212,198,0.75)" stroke-width="1.4"/>
-    <path d="M118 250 L180 188 L246 236" stroke="rgba(184,220,134,0.55)" stroke-width="1.2"/>
-    <circle cx="96" cy="210" r="5" fill="#7fd4c6"/><circle cx="148" cy="132" r="5" fill="#b8dc86"/>
-    <circle cx="214" cy="168" r="6" fill="#9cd6cc"/><circle cx="268" cy="104" r="5" fill="#7fd4c6"/>
-    <circle cx="118" cy="250" r="4" fill="#9cd6cc"/><circle cx="180" cy="188" r="7" fill="#b8dc86"/>
-    <circle cx="246" cy="236" r="4" fill="#7fd4c6"/><circle cx="180" cy="180" r="3" fill="#f3fffc"/>
+  const art = `<svg class="landing-orbit" viewBox="0 0 420 420" fill="none" aria-hidden="true">
+    <defs>
+      <radialGradient id="landing-glow" cx="50%" cy="48%" r="52%">
+        <stop offset="0%" stop-color="rgba(127,212,198,0.28)"/>
+        <stop offset="55%" stop-color="rgba(72,180,168,0.08)"/>
+        <stop offset="100%" stop-color="rgba(7,24,22,0)"/>
+      </radialGradient>
+      <linearGradient id="landing-arc" x1="70" y1="300" x2="340" y2="90" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#7fd4c6"/>
+        <stop offset="55%" stop-color="#b8dc86"/>
+        <stop offset="100%" stop-color="#9cd6cc"/>
+      </linearGradient>
+      <filter id="landing-soft" x="-40%" y="-40%" width="180%" height="180%">
+        <feGaussianBlur stdDeviation="2.2" result="b"/>
+        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+    <circle cx="210" cy="210" r="168" fill="url(#landing-glow)"/>
+    <circle class="landing-ring landing-ring-a" cx="210" cy="210" r="148" stroke="rgba(156,214,204,0.18)" stroke-width="1" stroke-dasharray="3 10"/>
+    <circle class="landing-ring landing-ring-b" cx="210" cy="210" r="112" stroke="rgba(184,220,134,0.22)" stroke-width="1.2"/>
+    <circle class="landing-ring landing-ring-c" cx="210" cy="210" r="74" stroke="rgba(127,212,198,0.35)" stroke-width="1.4"/>
+    <path d="M92 268 C132 232, 158 196, 186 168 C214 140, 248 118, 292 98" stroke="url(#landing-arc)" stroke-width="2" stroke-linecap="round" opacity="0.9" filter="url(#landing-soft)"/>
+    <path d="M118 302 C156 276, 188 248, 220 214 C248 188, 278 176, 318 168" stroke="rgba(184,220,134,0.45)" stroke-width="1.4" stroke-linecap="round" stroke-dasharray="2 7"/>
+    <g filter="url(#landing-soft)">
+      <circle class="landing-node" cx="92" cy="268" r="7" fill="#7fd4c6"/>
+      <circle class="landing-node" cx="148" cy="214" r="5.5" fill="#9cd6cc"/>
+      <circle class="landing-node" cx="186" cy="168" r="8" fill="#b8dc86"/>
+      <circle class="landing-node" cx="248" cy="128" r="6" fill="#7fd4c6"/>
+      <circle class="landing-node" cx="292" cy="98" r="7.5" fill="#b8dc86"/>
+      <circle class="landing-node" cx="118" cy="302" r="4.5" fill="#9cd6cc"/>
+      <circle class="landing-node" cx="220" cy="214" r="5" fill="#7fd4c6"/>
+      <circle class="landing-node" cx="318" cy="168" r="5" fill="#9cd6cc"/>
+    </g>
+    <g class="landing-core">
+      <circle cx="210" cy="210" r="28" fill="rgba(13,47,43,0.82)" stroke="rgba(184,220,134,0.55)" stroke-width="1.5"/>
+      <circle cx="210" cy="210" r="18" fill="rgba(127,212,198,0.16)" stroke="rgba(127,212,198,0.45)" stroke-width="1"/>
+      <text x="210" y="217" text-anchor="middle" fill="#e8f4f1" font-size="18" font-family="Noto Sans SC, sans-serif" font-weight="700">证</text>
+    </g>
+    <g class="landing-labels" fill="#9ebdb5" font-size="11" font-family="Noto Sans SC, sans-serif" letter-spacing="0.04em">
+      <text x="58" y="276">检索</text>
+      <text x="164" y="152">筛选</text>
+      <text x="304" y="90">提取</text>
+      <text x="328" y="184">Meta</text>
+    </g>
   </svg>`;
   return `<div class="landing-page">
     <header class="landing-nav">
@@ -663,13 +780,14 @@ function renderLanding() {
         <p class="landing-kicker">Evidence Workspace</p>
         <h1 class="landing-title">求证</h1>
         <p class="landing-subtitle">系统综述人机协作工作台</p>
-        <p class="landing-lead">Intelligent Support for Evidence Synthesis — 把检索、筛选、提取、偏倚评估与 Meta 综合，收成一条可追踪的证据旅程。</p>
+        <p class="landing-lead-en">Intelligent support for evidence synthesis</p>
+        <p class="landing-lead">把检索、筛选、提取、偏倚评估与 Meta 综合，收成一条可追踪的证据旅程。</p>
         <div class="landing-actions">
           <button type="button" class="primary-button" data-action="show-auth" data-auth-mode="login">登录后开始使用</button>
           <button type="button" class="ghost-button" data-action="landing-scroll-flow">了解综述流程</button>
         </div>
       </div>
-      <div class="landing-hero-art">${art}</div>
+      <div class="landing-hero-art" aria-hidden="true">${art}</div>
     </section>
     <section class="landing-section" id="flow">
       <h2>从问题到证据综合</h2>
@@ -917,6 +1035,64 @@ function robJudgement(questionKey, actor) {
   return state.robJudgements.find((item) => item.questionKey === questionKey && item.actor === actor);
 }
 
+const ROB_JUDGEMENT_RANK = { 'High risk': 3, 'Some concerns': 2, 'Low risk': 1 };
+
+function robStudyLabel(citation) {
+  const raw = String(citation?.authors || '').trim();
+  const first = raw.split(/[,;]/)[0].trim();
+  const surname = first.split(/\s+/).filter(Boolean).pop() || 'Study';
+  const year = citation?.year ? String(citation.year) : '';
+  return year ? `${surname} ${year}` : surname;
+}
+
+function robPreferredForQuestion(citationId, questionKey, rows = state.robSummaryJudgements) {
+  const matches = (rows || []).filter((item) => item.citationId === citationId && item.questionKey === questionKey);
+  return matches.find((item) => item.actor === 'human')
+    || matches.find((item) => item.actor === 'ai')
+    || null;
+}
+
+/** Domain-level traffic light: Low risk | Some concerns | High risk | NI */
+function robDomainLevel(citationId, domain, rows = state.robSummaryJudgements) {
+  const questions = domain?.questions || [];
+  if (!questions.length) return 'NI';
+  const picked = questions.map((q) => robPreferredForQuestion(citationId, q.key, rows));
+  if (picked.every((item) => !item)) return 'NI';
+  const answered = picked.filter(Boolean);
+  if (answered.every((item) => item.answer === 'No information')) return 'NI';
+  if (answered.length < questions.length) {
+    const known = answered
+      .filter((item) => item.answer !== 'No information')
+      .map((item) => item.judgement)
+      .filter((j) => ROB_JUDGEMENT_RANK[j]);
+    if (!known.length) return 'NI';
+    const worst = known.sort((a, b) => ROB_JUDGEMENT_RANK[b] - ROB_JUDGEMENT_RANK[a])[0];
+    return worst === 'Low risk' ? 'Some concerns' : worst;
+  }
+  const known = answered
+    .filter((item) => item.answer !== 'No information')
+    .map((item) => item.judgement)
+    .filter((j) => ROB_JUDGEMENT_RANK[j]);
+  if (!known.length) return 'NI';
+  return known.sort((a, b) => ROB_JUDGEMENT_RANK[b] - ROB_JUDGEMENT_RANK[a])[0];
+}
+
+function robOverallLevel(citationId, domains = state.robDomains, rows = state.robSummaryJudgements) {
+  const levels = (domains || []).map((domain) => robDomainLevel(citationId, domain, rows));
+  if (!levels.length || levels.every((level) => level === 'NI')) return 'NI';
+  const known = levels.filter((level) => level !== 'NI');
+  let worst = known.sort((a, b) => ROB_JUDGEMENT_RANK[b] - ROB_JUDGEMENT_RANK[a])[0];
+  if (levels.some((level) => level === 'NI') && worst === 'Low risk') worst = 'Some concerns';
+  return worst;
+}
+
+function robLevelMeta(level) {
+  if (level === 'Low risk') return { cls: 'low', label: '低风险', title: 'Low risk' };
+  if (level === 'Some concerns') return { cls: 'some', label: '存在顾虑', title: 'Some concerns' };
+  if (level === 'High risk') return { cls: 'high', label: '高风险', title: 'High risk' };
+  return { cls: 'ni', label: '信息不足', title: 'Insufficient information / not judged' };
+}
+
 function sourceSentences(text) {
   return (String(text || '').match(/[^.!?。！？]+[.!?。！？]?/g) || []).map((sentence) => sentence.trim()).filter(Boolean);
 }
@@ -936,11 +1112,19 @@ const pagesApi = createPages({
   includedAfterFulltext,
   decidedFulltext,
   latestFulltextFinal,
+  currentFulltextCitation,
+  citationWorkflowLock,
+  workflowLockBanner,
   screeningConflicts,
   recomputeDerivedCounts,
   moduleCount,
   robJudgement,
   robQuestionContext,
+  robStudyLabel,
+  robDomainLevel,
+  robOverallLevel,
+  robLevelMeta,
+  robPreferredForQuestion,
   sourceSentences,
   extractionValue,
 });
@@ -966,6 +1150,7 @@ function aiPanel() {
     titleMap,
     currentScreenCase,
     includedForFulltext,
+    currentFulltextCitation,
     screeningConflicts,
     robJudgement,
     recomputeDerivedCounts,
@@ -1479,6 +1664,14 @@ function bindEvents() {
     app();
   }));
   document.querySelectorAll('[data-extraction-view]').forEach(el => el.addEventListener('click', () => { state.extractionView = el.dataset.extractionView; persistState(); app(); }));
+  document.querySelectorAll('[data-rob-view]').forEach(el => el.addEventListener('click', () => {
+    state.robView = el.dataset.robView === 'detail' ? 'detail' : 'overview';
+    persistState();
+    app();
+    if (state.robView === 'detail' && state.robCitationId) {
+      refreshRobData(state.robCitationId).catch((err) => toast(err.message || '加载偏倚评价失败'));
+    }
+  }));
   document.querySelectorAll('[data-fulltext-list-view]').forEach(el => el.addEventListener('click', () => {
     state.fulltextListView = el.dataset.fulltextListView;
     state.fulltextReviewId = '';
@@ -1496,6 +1689,10 @@ function bindEvents() {
     const conflicts = screeningConflicts();
     const current = conflicts[state.adjudicationIndex || 0];
     if (!current?.citation?.id) { toast('没有可裁决的冲突'); return; }
+    if (citationWorkflowLock(current.citation).locksTitleAbstract) {
+      toast('该文献已有下游工作，请先回退本篇后再裁决');
+      return;
+    }
     const resolution = el.dataset.resolution;
     try {
       await ScreeningApi.submitFinal(state.projectId, current.citation.id, {
@@ -1678,6 +1875,13 @@ async function submitScreenDecision(decision) {
   const item = currentScreenCase();
   if (!item.id) {
     toast('没有可筛选的文献');
+    return;
+  }
+  const queue = state.screeningQueue.length ? state.screeningQueue : state.citations;
+  const rawItem = queue.find((row) => row.id === item.id);
+  if (citationWorkflowLock(rawItem).locksTitleAbstract) {
+    toast('该文献已有下游工作，请先回退本篇后再改初筛');
+    app();
     return;
   }
   try {
@@ -2056,7 +2260,7 @@ async function saveModal() {
 }
 
 async function runAssistantAction(action) {
-  const citationId = assistantFocusId(state, { currentScreenCase, includedForFulltext, screeningConflicts });
+  const citationId = assistantFocusId(state, { currentScreenCase, includedForFulltext, currentFulltextCitation, screeningConflicts });
   const needCred = () => {
     if (!state.credentialId) { toast('请先配置模型凭据'); return false; }
     return true;
@@ -2657,6 +2861,14 @@ async function submitFulltextDecision() {
     return;
   }
   const decision = state.fulltextDecision.startsWith('Exclude') ? 'Exclude' : state.fulltextDecision;
+  const lock = citationWorkflowLock(citation);
+  const existing = latestFulltextFinal(citation)?.decision;
+  if (lock.locksFulltextDecisionChange && existing && existing !== decision) {
+    toast('该文献已有提取或偏倚评价，请先回退到全文待审再改判');
+    state.fulltextDecision = null;
+    app();
+    return;
+  }
   const rationale = state.fulltextDecision.startsWith('Exclude')
     ? `[fulltext] ${state.fulltextDecision}`
     : '[fulltext] Full-text eligibility check against current protocol criteria';
@@ -2798,7 +3010,7 @@ async function handleAction(action, event) {
       app();
       return;
     }
-    const citationId = assistantFocusId(state, { currentScreenCase, includedForFulltext, screeningConflicts });
+    const citationId = assistantFocusId(state, { currentScreenCase, includedForFulltext, currentFulltextCitation, screeningConflicts });
     state.assistantBusy = true;
     app();
     LlmApi.chat({
@@ -2891,6 +3103,33 @@ async function handleAction(action, event) {
     state.fulltextViewMode = 'auto';
     persistState();
     app();
+    return;
+  }
+  if (action === 'rollback-citation') {
+    const citationId = event.currentTarget.dataset.id || '';
+    const to = event.currentTarget.dataset.to === 'fulltext_pending' ? 'fulltext_pending' : 'title_abstract';
+    if (!citationId || !state.projectId) return;
+    const toLabel = to === 'fulltext_pending' ? '全文待审' : '初筛';
+    const detail = to === 'fulltext_pending'
+      ? '将清除该篇全文终裁、提取值、偏倚评价与相关 Meta 行，并重新进入全文待审。'
+      : '将清除该篇裁决终裁、全文终裁、提取值、偏倚评价与相关 Meta 行，以便重新初筛。';
+    if (!window.confirm(`确认回退本篇到「${toLabel}」？\n${detail}`)) return;
+    try {
+      await CitationApi.rollback(state.projectId, citationId, to);
+      if (state.fulltextReviewId === citationId && to === 'title_abstract') {
+        state.fulltextReviewId = '';
+        state.fulltextListView = 'queue';
+      } else if (to === 'fulltext_pending') {
+        state.fulltextReviewId = '';
+        state.fulltextListView = 'queue';
+      }
+      state.fulltextDecision = null;
+      await refreshProjectData();
+      app();
+      toast(`已回退到${toLabel}`);
+    } catch (err) {
+      toast(err.message || '回退失败');
+    }
     return;
   }
   if (action === 'close-fulltext-review') {
@@ -3137,6 +3376,15 @@ async function handleAction(action, event) {
     return;
   }
   if (action === 'batch-confirm') {
+    const queue = state.screeningQueue.length ? state.screeningQueue : state.citations;
+    const lockedIds = state.selectedBatch.filter((id) => {
+      const item = queue.find((row) => String(row.id) === String(id));
+      return citationWorkflowLock(item).locksTitleAbstract;
+    });
+    if (lockedIds.length) {
+      toast(`${lockedIds.length} 条已锁定（有下游工作），请先回退或从选择中排除`);
+      return;
+    }
     const unresolved = state.selectedBatch.filter((id) => !state.batchDecisions[id]);
     if (unresolved.length) { toast('还有 ' + unresolved.length + ' 条未选择人工判断'); return; }
     Promise.all(state.selectedBatch.map((id) => ScreeningApi.submitHuman(state.projectId, id, {
@@ -3253,6 +3501,13 @@ async function handleAction(action, event) {
   if (action === 'save-rob') { saveRobJudgement(); return; }
   if (action === 'run-rob-find') { runRobFindEvidence(); return; }
   if (action === 'run-rob-ai') { runRobAi(); return; }
+  if (action === 'run-rob-all') { runRobEvaluateAll(); return; }
+  if (action === 'open-rob-review') {
+    const citationId = event.currentTarget.dataset.citationId || '';
+    const domainKey = event.currentTarget.dataset.domain || 'D1';
+    openRobReview(citationId, domainKey).catch((err) => toast(err.message || '打开评价失败'));
+    return;
+  }
   if (action === 'next-study') {
     const currentIndex = Math.max(0, state.robCitations.findIndex((item) => item.id === state.robCitationId));
     const next = state.robCitations[(currentIndex + 1) % Math.max(state.robCitations.length, 1)];
@@ -3509,6 +3764,22 @@ async function openProject(projectId) {
   state.assistantResult = null;
   state.lastAiQuestion = '';
   state.lastAiAnswer = '';
+  state.fulltextReviewId = '';
+  state.fulltextIndex = 0;
+  state.fulltextListView = 'auto';
+  state.fulltextDecision = null;
+  state.fulltextEvidenceQuery = '';
+  state.fulltextEvidenceCriterionId = '';
+  state.extractionFocus = null;
+  state.robCitationId = '';
+  state.robView = 'overview';
+  state.robAllProgress = null;
+  state.metaAnalysisId = '';
+  state.adjudicationIndex = 0;
+  state.adjudicationResolution = null;
+  state.adjudicationSuggestion = null;
+  state.screeningIndex = 0;
+  state.decision = null;
   await refreshProjectData();
   state.boot = 'workspace';
   if (!location.hash) history.replaceState(null, '', '#dashboard');
@@ -3587,8 +3858,9 @@ async function refreshRobData(citationId = '') {
   const result = await RiskOfBiasApi.get(state.projectId, citationId || undefined);
   state.robDomains = result.domains || [];
   state.robCitations = result.citations || [];
-  state.robCitationId = result.citationId || '';
+  state.robCitationId = result.citationId || state.robCitationId || '';
   state.robJudgements = result.judgements || [];
+  state.robSummaryJudgements = result.summaryJudgements || [];
   const allQuestions = state.robDomains.flatMap((domain) => domain.questions);
   if (!allQuestions.some((question) => question.key === state.robQuestionKey)) state.robQuestionKey = allQuestions[0]?.key || '';
   const human = robJudgement(state.robQuestionKey, 'human');
@@ -3597,7 +3869,68 @@ async function refreshRobData(citationId = '') {
     ? spansFromRobJudgement(human)
     : spansFromRobJudgement(ai);
   app();
-  rankRobEvidenceForCurrentQuestion().catch(() => null);
+  if (state.robView === 'detail') rankRobEvidenceForCurrentQuestion().catch(() => null);
+}
+
+async function openRobReview(citationId, domainKey = 'D1') {
+  if (!citationId) return;
+  const domain = state.robDomains.find((item) => item.key === domainKey) || state.robDomains[0];
+  state.robView = 'detail';
+  state.robCitationId = citationId;
+  state.robQuestionKey = domain?.questions?.[0]?.key || 'D1.1';
+  state.robEvidenceSpans = [];
+  persistState();
+  await refreshRobData(citationId);
+}
+
+async function runRobEvaluateAll() {
+  if (!state.credentialId) { toast('请先在项目设置中选择模型凭据'); return; }
+  if (state.robAllProgress) { toast('一键评价进行中，请稍候'); return; }
+  if (!state.robCitations.length) {
+    await refreshRobData(state.robCitationId || undefined);
+  }
+  const citations = state.robCitations || [];
+  const tasks = [];
+  for (const citation of citations) {
+    for (const domain of state.robDomains || []) {
+      for (const question of domain.questions || []) {
+        tasks.push({
+          citationId: citation.id,
+          citationLabel: robStudyLabel(citation),
+          domainKey: domain.key,
+          questionKey: question.key,
+        });
+      }
+    }
+  }
+  if (!tasks.length) { toast('没有可评价的研究或题目'); return; }
+  state.robView = 'overview';
+  state.robAllProgress = { done: 0, total: tasks.length, current: '', failed: 0 };
+  app();
+  let failed = 0;
+  for (let i = 0; i < tasks.length; i += 1) {
+    const task = tasks[i];
+    state.robAllProgress = {
+      done: i,
+      total: tasks.length,
+      current: `${task.citationLabel} · ${task.questionKey}`,
+      failed,
+    };
+    app();
+    try {
+      await RiskOfBiasApi.runAi(state.projectId, task.citationId, {
+        domainKey: task.domainKey,
+        questionKey: task.questionKey,
+        credentialId: state.credentialId,
+      });
+    } catch {
+      failed += 1;
+    }
+  }
+  state.robAllProgress = null;
+  await refreshRobData(state.robCitationId || citations[0]?.id || undefined);
+  toast(failed ? `一键评价完成：失败 ${failed} / ${tasks.length}` : `一键评价完成：${tasks.length} 题`);
+  app();
 }
 
 async function saveRobJudgement() {
@@ -3727,6 +4060,7 @@ async function refreshProjectData() {
   state.robCitations = robRes.citations || [];
   state.robCitationId = robRes.citationId || '';
   state.robJudgements = robRes.judgements || [];
+  state.robSummaryJudgements = robRes.summaryJudgements || [];
   const firstRobQuestion = state.robDomains.flatMap((domain) => domain.questions)[0];
   if (!state.robDomains.some((domain) => domain.questions.some((question) => question.key === state.robQuestionKey))) state.robQuestionKey = firstRobQuestion?.key || '';
   const savedRobSpans = spansFromRobJudgement(robJudgement(state.robQuestionKey, 'human')).length

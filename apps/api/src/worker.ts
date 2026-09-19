@@ -5,6 +5,7 @@ import { createWorker, QUEUE_IMPORT, QUEUE_SCREEN, QUEUE_EXTRACT } from './lib/q
 import { runScreeningAi } from './routes/screening.js';
 import { runExtractionAi } from './routes/extraction.js';
 import { writeAudit } from './services/rbac.js';
+import { assertCanMutateTitleAbstract } from './services/citation-lifecycle.js';
 import { loadEnv } from './config/env.js';
 import { ensureBucket } from './lib/s3.js';
 
@@ -197,6 +198,7 @@ async function processScreen(data: Record<string, unknown>) {
 
       for (const citationId of citationIds) {
         try {
+          await assertCanMutateTitleAbstract(String(data.projectId), citationId);
           const result = await runScreeningAiWithRetry({
             projectId: String(data.projectId),
             citationId,
@@ -219,6 +221,7 @@ async function processScreen(data: Record<string, unknown>) {
       return { results, failures };
     }
 
+    await assertCanMutateTitleAbstract(String(data.projectId), String(data.citationId));
     const result = await runScreeningAiWithRetry({
       projectId: String(data.projectId),
       citationId: String(data.citationId),

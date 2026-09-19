@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { AppError, sendError } from '../lib/errors.js';
 import { assertCanWrite, requireProjectMember, writeAudit } from '../services/rbac.js';
+import { rollbackCitation } from '../services/citation-lifecycle.js';
 import { sha256 } from '../lib/crypto.js';
 import { getObjectBuffer, putObject, deleteObject } from '../lib/s3.js';
 import { loadEnv } from '../config/env.js';
@@ -74,6 +75,7 @@ async function loadCitationImpacts(projectId: string, citationIds: string[]) {
           decisions: true,
           extractionValues: true,
           riskOfBiasJudgements: true,
+          effectRows: true,
         },
       },
     },
@@ -85,13 +87,20 @@ async function loadCitationImpacts(projectId: string, citationIds: string[]) {
     const screeningDecisions = citation._count.decisions;
     const extractionValues = citation._count.extractionValues;
     const robJudgements = citation._count.riskOfBiasJudgements;
-    const hasDownstream = screeningDecisions > 0 || extractionValues > 0 || robJudgements > 0 || hasFulltext;
+    const effectRows = citation._count.effectRows;
+    const hasDownstream =
+      screeningDecisions > 0
+      || extractionValues > 0
+      || robJudgements > 0
+      || effectRows > 0
+      || hasFulltext;
     return {
       id: citation.id,
       title: citation.title,
       screeningDecisions,
       extractionValues,
       robJudgements,
+      effectRows,
       hasFulltext,
       hasDownstream,
     };
@@ -192,6 +201,27 @@ export async function citationRoutes(app: FastifyInstance) {
       return { citation };
     } catch (err) {
       return sendError(reply, err);
+    }
+  });
+
+  app.post('/api/projects/:projectId/citations/:citationId/rollback', { preHandler: [app.authenticate] }, async (request, reply) => {
+    try {
+      const { projectId, citationId } = request.params as { projectId: string; citationId: string };
+      const membership = await requireProjectMember(projectId, request.user!.id, 'reviewer');
+      assertCanWrite(membership.role);
+      const body = z.object({
+        to: z.enum(['title_abstract', 'fulltext_pending']),
+      }).parse(request.body ?? {});
+      const result = await rollbackCitation({
+        projectId,
+        citationId,
+        to: body.to,
+        userId: request.user!.id,
+        actorName: request.user!.name,
+      });
+      return result;
+    } catch (err) {
+      return sendError(reply, err instanceof z.ZodError ? new AppError(400, 'validation', err.message) : err);
     }
   });
 

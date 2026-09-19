@@ -3,9 +3,10 @@ import { highlightEvidenceHtml } from './core.js';
 export function createPages(ctx) {
   const {
     state, icon, escapeHtml, header, titleMap, matchesQuery,
-    currentScreenCase, includedForFulltext, includedAfterFulltext, decidedFulltext, latestFulltextFinal, screeningConflicts,
-    recomputeDerivedCounts, moduleCount, robJudgement, robQuestionContext, sourceSentences,
-    extractionValue,
+    currentScreenCase, includedForFulltext, includedAfterFulltext, decidedFulltext, latestFulltextFinal,
+    currentFulltextCitation, citationWorkflowLock, workflowLockBanner, screeningConflicts,
+    recomputeDerivedCounts, moduleCount, robJudgement, robQuestionContext, robStudyLabel, robDomainLevel, robOverallLevel, robLevelMeta,
+    sourceSentences, extractionValue,
   } = ctx;
 
   const extractionTypeLabels = { text: '文本', number: '数值', boolean: '是/否', select: '单选', date: '日期' };
@@ -208,6 +209,9 @@ export function createPages(ctx) {
   function screening() {
     if (state.screenMode === 'batch') return screeningBatch();
     const c = currentScreenCase();
+    const queue = state.screeningQueue.length ? state.screeningQueue : state.citations;
+    const rawItem = queue.find((item) => item.id === c.id) || null;
+    const lock = citationWorkflowLock(rawItem);
     const remaining = moduleCount('screening');
     const abstractText = c.abstract || '';
     const showAi = Boolean(state.decision || c.humanDecision);
@@ -217,8 +221,10 @@ export function createPages(ctx) {
       : (showAi
         ? '<section class="ai-reveal-card muted-card"><p class="muted">已提交人工判断；暂无 AI 结论（可在侧栏对本条再跑初筛 AI）。</p></section>'
         : '<section class="ai-reveal-card muted-card"><p class="muted">盲筛中：先根据摘要提交人工判断，提交后才会揭盲 AI 理由与证据。</p></section>');
+    const decideDisabled = state.decision || !c.id || lock.locksTitleAbstract;
     return `${header('Title and abstract screening', '题目与摘要初筛', '先阅读摘要并提交人工判断；提交后揭盲 AI 理由与证据。可用 Diff 导入第二位 reviewer 结果。', `<button class="ghost-button" data-action="export-screening-diff">${icon('download')} 导出 Diff</button><button class="ghost-button" data-action="import-screening-diff">${icon('upload')} 导入 Diff</button><div class="tabs"><button class="tab active" data-screen-mode="single">单篇模式</button><button class="tab" data-screen-mode="batch">批量模式</button></div>`)}
-  <div class="screen-layout"><article class="citation-card"><div class="citation-meta"><span>Record ${state.screeningIndex + 1}/${Math.max((state.screeningQueue.length || state.citations.length), 1)}</span><span>${escapeHtml(c.authors)}</span><span>${escapeHtml(c.journal)}</span><span class="badge blue">${showAi ? (hasAi ? 'AI 已揭盲' : '仅人工') : 'Blind mode'}</span></div><div class="citation-main"><h3>${escapeHtml(c.title)}</h3><div class="abstract-block"><h4>摘要</h4><p>${abstractText ? escapeHtml(abstractText) : '<span class="muted">这条记录没有摘要，建议回文献库核对导入结果。</span>'}</p></div></div>${aiPanel}<div class="decision-bar"><div><div class="decision-group"><button class="decision-button include ${state.decision === 'Include' ? 'selected' : ''}" data-decision="Include" ${state.decision || !c.id ? 'disabled' : ''}>${icon('check')} 纳入</button><button class="decision-button exclude ${state.decision === 'Exclude' ? 'selected' : ''}" data-decision="Exclude" ${state.decision || !c.id ? 'disabled' : ''}>${icon('x')} 排除</button><button class="decision-button uncertain ${state.decision === 'Uncertain' ? 'selected' : ''}" data-decision="Uncertain" ${state.decision || !c.id ? 'disabled' : ''}>? 待定</button></div></div><div class="muted">剩余约 ${remaining} · 快捷键 1/2/3</div></div></article>
+  ${workflowLockBanner(rawItem, 'title_abstract')}
+  <div class="screen-layout"><article class="citation-card"><div class="citation-meta"><span>Record ${state.screeningIndex + 1}/${Math.max((state.screeningQueue.length || state.citations.length), 1)}</span><span>${escapeHtml(c.authors)}</span><span>${escapeHtml(c.journal)}</span><span class="badge blue">${showAi ? (hasAi ? 'AI 已揭盲' : '仅人工') : 'Blind mode'}</span></div><div class="citation-main"><h3>${escapeHtml(c.title)}</h3><div class="abstract-block"><h4>摘要</h4><p>${abstractText ? escapeHtml(abstractText) : '<span class="muted">这条记录没有摘要，建议回文献库核对导入结果。</span>'}</p></div></div>${aiPanel}<div class="decision-bar"><div><div class="decision-group"><button class="decision-button include ${state.decision === 'Include' ? 'selected' : ''}" data-decision="Include" ${decideDisabled ? 'disabled' : ''}>${icon('check')} 纳入</button><button class="decision-button exclude ${state.decision === 'Exclude' ? 'selected' : ''}" data-decision="Exclude" ${decideDisabled ? 'disabled' : ''}>${icon('x')} 排除</button><button class="decision-button uncertain ${state.decision === 'Uncertain' ? 'selected' : ''}" data-decision="Uncertain" ${decideDisabled ? 'disabled' : ''}>? 待定</button></div></div><div class="muted">剩余约 ${remaining} · 快捷键 1/2/3</div></div></article>
   <aside class="panel screening-protocol-tips"><div class="panel-head"><h3>当前方案提示</h3></div><div class="panel-body" data-scroll-preserve>${state.criteria.length ? state.criteria.map((item) => {
       const includeLines = (item.include || []).filter(Boolean);
       const excludeLines = (item.exclude || []).filter(Boolean);
@@ -229,7 +235,8 @@ export function createPages(ctx) {
   function screeningBatch() {
     const queue = state.screeningQueue.length ? state.screeningQueue : state.citations;
     const cases = queue.map((item) => {
-      const ai = item.raw?.decisions?.find((d) => d.actor === 'ai');
+      const ai = latestActorDecisionFromItem(item);
+      const lock = citationWorkflowLock(item);
       const abstractText = item.abstract || item.raw?.abstract || '';
       return {
         id: item.id,
@@ -241,6 +248,7 @@ export function createPages(ctx) {
         criterion: (ai?.criterionIds || []).join(' · ') || '—',
         reason: ai?.rationale || '',
         evidence: ai?.evidence || '',
+        locked: lock.locksTitleAbstract,
       };
     });
     const selectedCount = (state.selectedBatch || []).length;
@@ -249,8 +257,23 @@ export function createPages(ctx) {
     const someSelected = selectedCount > 0 && !allSelected;
     return `${header('Title and abstract screening', '批量筛选', '列表展示摘要与 AI 理由，便于对照后提交人工判断。', `<button class="ghost-button" data-action="export-screening-diff">${icon('download')} 导出 Diff</button><button class="ghost-button" data-action="import-screening-diff">${icon('upload')} 导入 Diff</button><div class="tabs"><button class="tab" data-screen-mode="single">单篇模式</button><button class="tab active" data-screen-mode="batch">批量模式</button></div>`)}<section class="panel"><div class="panel-body"><div class="toolbar"><span class="muted">已选择 ${selectedCount} / ${cases.length} 条</span><span class="spacer"></span>${selectedCount ? `<button class="ghost-button" data-action="batch-clear-selection">取消全选</button>` : ''}<button class="ghost-button" data-action="batch-confirm" ${selectedCount ? '' : 'disabled'}>批量确认</button></div></div><div class="table-wrap"><table><thead><tr><th><input type="checkbox" data-batch-all aria-label="${allSelected ? '取消全选' : '全选'}" title="${allSelected ? '取消全选' : '全选'}" ${allSelected ? 'checked' : ''} ${someSelected ? 'data-indeterminate="true"' : ''}></th><th>文献与摘要</th><th>AI 判断 / 理由</th><th>人工判断</th></tr></thead><tbody>${cases.length ? cases.map((c) => {
       const preview = c.abstract ? (c.abstract.length > 260 ? `${c.abstract.slice(0, 260)}…` : c.abstract) : '无摘要';
-      return `<tr><td><input type="checkbox" data-batch-select="${c.id}" ${(state.selectedBatch || []).includes(String(c.id)) ? 'checked' : ''}></td><td class="title-cell wide"><strong>${escapeHtml(c.title)}</strong><small>${escapeHtml(c.authors)}</small><p class="abstract-preview">${escapeHtml(preview)}</p><button type="button" class="link-button abstract-expand" data-action="citation-more" data-id="${c.id}">${icon('file', 14)} 查看完整标题与摘要</button></td><td class="ai-cell"><span class="badge ${c.ai === 'Include' ? 'green' : c.ai === 'Exclude' ? 'red' : c.ai === 'Uncertain' ? 'amber' : 'gray'}">${escapeHtml(c.ai)}</span>${c.confidence && c.confidence !== '—' ? `<small class="ai-meta">${escapeHtml(c.confidence)}</small>` : ''}<p class="ai-reason">${escapeHtml(c.reason || '暂无 AI 理由')}</p>${c.evidence ? `<p class="ai-evidence">${escapeHtml(c.evidence.length > 160 ? `${c.evidence.slice(0, 160)}…` : c.evidence)}</p>` : ''}</td><td><select class="select" data-batch-decision="${c.id}"><option value="">待处理</option>${[['Include', '纳入'], ['Exclude', '排除'], ['Uncertain', '待定']].map(([value, label]) => `<option value="${value}" ${state.batchDecisions[c.id] === value ? 'selected' : ''}>${label}</option>`).join('')}</select></td></tr>`;
+      return `<tr><td><input type="checkbox" data-batch-select="${c.id}" ${(state.selectedBatch || []).includes(String(c.id)) ? 'checked' : ''} ${c.locked ? 'disabled' : ''}></td><td class="title-cell wide"><strong>${escapeHtml(c.title)}</strong><small>${escapeHtml(c.authors)}</small><p class="abstract-preview">${escapeHtml(preview)}</p><button type="button" class="link-button abstract-expand" data-action="citation-more" data-id="${c.id}">${icon('file', 14)} 查看完整标题与摘要</button>${c.locked ? `<p class="muted" style="margin:6px 0 0;font-size:11px">已锁定 · <button class="link-button" data-action="rollback-citation" data-id="${c.id}" data-to="title_abstract">回退到初筛</button></p>` : ''}</td><td class="ai-cell"><span class="badge ${c.ai === 'Include' ? 'green' : c.ai === 'Exclude' ? 'red' : c.ai === 'Uncertain' ? 'amber' : 'gray'}">${escapeHtml(c.ai)}</span>${c.confidence && c.confidence !== '—' ? `<small class="ai-meta">${escapeHtml(c.confidence)}</small>` : ''}<p class="ai-reason">${escapeHtml(c.reason || '暂无 AI 理由')}</p>${c.evidence ? `<p class="ai-evidence">${escapeHtml(c.evidence.length > 160 ? `${c.evidence.slice(0, 160)}…` : c.evidence)}</p>` : ''}</td><td>${c.locked ? '<span class="badge amber">已锁定</span>' : `<select class="select" data-batch-decision="${c.id}"><option value="">待处理</option>${[['Include', '纳入'], ['Exclude', '排除'], ['Uncertain', '待定']].map(([value, label]) => `<option value="${value}" ${state.batchDecisions[c.id] === value ? 'selected' : ''}>${label}</option>`).join('')}</select>`}</td></tr>`;
     }).join('') : `<tr><td colspan="4"><div class="empty-state"><p>暂无文献。</p></div></td></tr>`}</tbody></table></div></section>`;
+  }
+
+  function latestActorDecisionFromItem(item) {
+    const rows = (item?.raw?.decisions || []).filter((d) => {
+      if (d.actor !== 'ai') return false;
+      const rationale = String(d.rationale || '');
+      return !(/\[fulltext\]/i.test(rationale) || /^Full-text eligibility/i.test(rationale));
+    });
+    if (!rows.length) return null;
+    return rows.reduce((best, row) => {
+      if (!best) return row;
+      const a = Date.parse(row.createdAt || '') || 0;
+      const b = Date.parse(best.createdAt || '') || 0;
+      return a >= b ? row : best;
+    }, null);
   }
 
   function fulltext() {
@@ -277,7 +300,7 @@ export function createPages(ctx) {
         const label = decision === 'Include' ? '纳入' : decision === 'Exclude' ? '排除' : (decision || '未知');
         const rationale = String(final?.rationale || '').replace(/^\[fulltext\]\s*/i, '').trim();
         const hasFiles = Boolean(item.hasPdf || item.hasMd || item.fullTextMarkdown || item.raw?.fullTextMarkdown);
-        return `<tr><td class="title-cell wide"><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.authors || '')}</small></td><td><span class="badge ${badge}">${escapeHtml(label)}</span></td><td><span class="badge ${hasFiles ? 'blue' : 'amber'}">${hasFiles ? '已上传' : '无全文'}</span></td><td class="title-cell"><p class="abstract-preview">${escapeHtml(rationale || '—')}</p></td><td class="row-actions"><button class="ghost-button" data-action="open-fulltext-review" data-id="${escapeHtml(item.id)}">${icon('file')} 查看/补传</button><button class="ghost-button" data-action="upload-fulltext" data-id="${escapeHtml(item.id)}">${icon('upload')} 上传</button>${decision === 'Include' ? `<button class="ghost-button" data-nav="extraction">去提取</button>` : ''}</td></tr>`;
+        return `<tr><td class="title-cell wide"><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.authors || '')}</small></td><td><span class="badge ${badge}">${escapeHtml(label)}</span></td><td><span class="badge ${hasFiles ? 'blue' : 'amber'}">${hasFiles ? '已上传' : '无全文'}</span></td><td class="title-cell"><p class="abstract-preview">${escapeHtml(rationale || '—')}</p></td><td class="row-actions"><button class="ghost-button" data-action="open-fulltext-review" data-id="${escapeHtml(item.id)}">${icon('file')} 查看/补传</button><button class="ghost-button" data-action="upload-fulltext" data-id="${escapeHtml(item.id)}">${icon('upload')} 上传</button>${citationWorkflowLock(item).locksFulltextDecisionChange ? `<button class="ghost-button" data-action="rollback-citation" data-id="${escapeHtml(item.id)}" data-to="fulltext_pending">回退全文</button>` : ''}${decision === 'Include' ? `<button class="ghost-button" data-nav="extraction">去提取</button>` : ''}</td></tr>`;
       }).join('');
       return `${header('Full text screening', '全文证据核对', '已完成的全文筛选结果。可随时查看、补传全文或改判。')}${listSwitch}<div class="stats-grid">${[['已审全文', decided.length], ['纳入', includedCount], ['排除', excludedCount], ['待审', pending.length]].map((x) => `<div class="stat-card"><div class="stat-top">${x[0]}</div><div class="stat-value">${x[1]}</div></div>`).join('')}</div><section class="panel"><div class="panel-head"><div><h3>全文筛选结果</h3><p>${decided.length} 条已终裁</p></div>${pending.length ? `<button class="ghost-button" data-fulltext-list-view="queue">继续待审 ${pending.length}</button>` : ''}</div><div class="panel-body"><div class="table-wrap"><table><thead><tr><th class="wide">文献</th><th>决定</th><th>全文</th><th>理由</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div></section>`;
     }
@@ -324,20 +347,24 @@ export function createPages(ctx) {
     const existingFinal = reviewing ? latestFulltextFinal(citation) : null;
     const existingDecision = existingFinal?.decision || '';
     const existingLabel = existingDecision === 'Include' ? '纳入' : existingDecision === 'Exclude' ? '排除' : '';
+    const lock = citationWorkflowLock(citation);
+    const decisionLocked = reviewing && lock.locksFulltextDecisionChange;
     const headerActions = `${reviewing ? `<button class="ghost-button" data-action="close-fulltext-review">${icon('chevron')} 返回列表</button>` : ''}<button class="ghost-button" data-action="upload-fulltext" data-id="${citation.id}">${icon('upload')} ${hasFulltextFiles ? '重新上传' : '上传全文'}</button><button class="ghost-button danger-text" data-action="delete-fulltext" data-id="${citation.id}" ${hasFulltextFiles ? '' : 'disabled'}>${icon('x')} 删除全文</button><button class="ghost-button" data-action="prev-fulltext" ${navList.length > 1 ? '' : 'disabled'}>上一条</button><button class="ghost-button" data-action="next-fulltext" ${navList.length > 1 ? '' : 'disabled'}>下一条</button>`;
     const statusBanner = state.fulltextDecision
       ? `<div class="status-banner">正在提交：<strong>${escapeHtml(state.fulltextDecision)}</strong>${navHint ? ` · ${navHint}` : ''}</div>`
       : reviewing
-        ? `<div class="status-banner muted">复核已完成记录${existingLabel ? ` · 当前决定：<strong>${escapeHtml(existingLabel)}</strong>` : ''}${navHint ? ` · ${navHint}` : ''} · 可补传全文或重新裁决</div>`
+        ? `<div class="status-banner muted">复核已完成记录${existingLabel ? ` · 当前决定：<strong>${escapeHtml(existingLabel)}</strong>` : ''}${navHint ? ` · ${navHint}` : ''} · 可补传全文${decisionLocked ? '；改判需先回退下游' : '或重新裁决'}</div>`
         : (navHint ? `<div class="status-banner muted">待审记录 ${navHint}</div>` : '');
-    const decisionHint = reviewing
-      ? '可补传或替换全文；再次点击纳入/排除将覆盖当前终裁。'
-      : '点击纳入会立即写入；排除需填写理由后提交。';
+    const decisionHint = decisionLocked
+      ? '该文献已有提取或偏倚评价数据。改判前请先回退到全文待审。'
+      : reviewing
+        ? '可补传或替换全文；再次点击纳入/排除将覆盖当前终裁。'
+        : '点击纳入会立即写入；排除需填写理由后提交。';
     const title = reviewing ? '全文复核与补传' : '全文证据核对';
     const subtitle = reviewing
-      ? '已完成记录仍可上传/删除全文，并重新做出纳入或排除决定。'
-      : 'PDF 与 Markdown 分开展示；点击右侧标准会经 Embedding（低阈值）+ LLM 定位原文并高亮。';
-    return `${header('Full text screening', title, subtitle, headerActions)}${listSwitch}${statusBanner}${viewSwitch}<div class="pdf-layout">${viewer}<aside class="eligibility-card"><div class="panel-head"><div><h3>Eligibility</h3><p>${state.criteria.length} 项标准</p></div></div>${criteriaRows}<div style="padding:14px"><div class="decision-group"><button class="decision-button include ${state.fulltextDecision === 'Include' || (!state.fulltextDecision && existingDecision === 'Include') ? 'selected' : ''}" data-action="full-include">纳入</button><button class="decision-button exclude ${state.fulltextDecision?.startsWith('Exclude') || (!state.fulltextDecision && existingDecision === 'Exclude') ? 'selected' : ''}" data-action="full-exclude">排除</button></div><p class="muted" style="margin-top:10px;font-size:11px;line-height:1.45">${decisionHint}</p></div></aside></div>`;
+      ? '已完成记录仍可上传/删除全文；若无下游数据可重新做出纳入或排除决定。'
+      : 'PDF 与 Markdown 分开展示；点击右侧标准会经 Embedding（低置信）+ LLM 定位原文并高亮。';
+    return `${header('Full text screening', title, subtitle, headerActions)}${listSwitch}${workflowLockBanner(citation, 'fulltext')}${statusBanner}${viewSwitch}<div class="pdf-layout">${viewer}<aside class="eligibility-card"><div class="panel-head"><div><h3>Eligibility</h3><p>${state.criteria.length} 项标准</p></div></div>${criteriaRows}<div style="padding:14px"><div class="decision-group"><button class="decision-button include ${state.fulltextDecision === 'Include' || (!state.fulltextDecision && existingDecision === 'Include') ? 'selected' : ''}" data-action="full-include" ${decisionLocked ? 'disabled' : ''}>纳入</button><button class="decision-button exclude ${state.fulltextDecision?.startsWith('Exclude') || (!state.fulltextDecision && existingDecision === 'Exclude') ? 'selected' : ''}" data-action="full-exclude" ${decisionLocked ? 'disabled' : ''}>排除</button></div><p class="muted" style="margin-top:10px;font-size:11px;line-height:1.45">${decisionHint}</p></div></aside></div>`;
   }
 
   function extractionFieldManager() {
@@ -373,14 +400,39 @@ export function createPages(ctx) {
   ${state.extractionView === 'fields' ? extractionFieldManager() : extractionDataTable()}`;
   }
 
-  function rob() {
-    const eligible = includedAfterFulltext();
-    const citation = state.robCitations.find((item) => item.id === state.robCitationId) || state.robCitations[0];
-    if (!eligible.length || !citation) {
-      return `${header('Risk of bias', '偏倚风险评估', '仅评估全文筛选已纳入的研究。')}<div class="empty-state"><p>尚无全文纳入的研究。请先完成冲突裁决与全文筛选。</p></div>`;
+  function robDot(level) {
+    const meta = robLevelMeta(level);
+    return `<span class="rob-dot ${meta.cls}" title="${escapeHtml(meta.title)}" aria-label="${escapeHtml(meta.label)}"></span>`;
+  }
+
+  function robOverview() {
+    const studies = state.robCitations.length ? state.robCitations : includedAfterFulltext();
+    const domains = state.robDomains || [];
+    const progress = state.robAllProgress;
+    const progressHtml = progress
+      ? `<div class="status-banner muted">一键评价进行中：${progress.done} / ${progress.total}${progress.current ? ` · ${escapeHtml(progress.current)}` : ''}</div>`
+      : '';
+    const legend = `<div class="rob-legend"><span>${robDot('Low risk')} 低风险</span><span>${robDot('Some concerns')} 存在顾虑</span><span>${robDot('High risk')} 高风险</span><span>${robDot('NI')} 信息不足 / 未评价</span></div>`;
+    if (!studies.length) {
+      return `<div class="empty-state"><p>尚无全文纳入的研究。请先完成冲突裁决与全文筛选。</p></div>`;
     }
+    const rows = studies.map((citation) => {
+      const cells = domains.map((domain) => {
+        const level = robDomainLevel(citation.id, domain);
+        return `<td><button type="button" class="rob-cell" data-action="open-rob-review" data-citation-id="${escapeHtml(citation.id)}" data-domain="${escapeHtml(domain.key)}" title="${escapeHtml(domain.title)} · ${escapeHtml(robLevelMeta(level).label)}">${robDot(level)}</button></td>`;
+      }).join('');
+      const overall = robOverallLevel(citation.id);
+      return `<tr><td class="title-cell"><button type="button" class="link-button rob-study-link" data-action="open-rob-review" data-citation-id="${escapeHtml(citation.id)}" data-domain="D1"><strong>${escapeHtml(robStudyLabel(citation))}</strong></button><small>${escapeHtml(citation.title || '')}</small></td>${cells}<td><button type="button" class="rob-cell" data-action="open-rob-review" data-citation-id="${escapeHtml(citation.id)}" data-domain="D1" title="总体 · ${escapeHtml(robLevelMeta(overall).label)}">${robDot(overall)}</button></td></tr>`;
+    }).join('');
+    return `${progressHtml}<section class="panel rob-overview-panel"><div class="panel-head"><div><h3>质量评价 · RoB 2</h3><p>五域判断总览；虚线圆表示信息不足或尚未评价。点击圆点或研究名进入逐题回看。</p></div></div><div class="panel-body">${legend}<div class="table-wrap"><table class="rob-matrix"><thead><tr><th class="wide">纳入研究</th>${domains.map((d) => `<th title="${escapeHtml(d.title)}">${escapeHtml(d.key)}</th>`).join('')}<th>总体</th></tr></thead><tbody>${rows}</tbody></table></div><p class="muted rob-matrix-note">RoB 2 五域判断 · 领域取信号题较差结果；总体取五域较差结果。未评价或答案为 No information 显示虚线圆。</p></div></section>`;
+  }
+
+  function robDetail() {
+    const citation = state.robCitations.find((item) => item.id === state.robCitationId) || state.robCitations[0];
     const { domain: activeDomain, question: activeQuestion } = robQuestionContext();
-    if (!citation || !activeDomain || !activeQuestion) return `${header('Risk of bias', '偏倚风险评价', '划选原文绑定多段证据，可 AI 找原文或辅助判断。')}<div class="empty-state">${icon('shield')}<h3>暂无可评价研究</h3></div>`;
+    if (!citation || !activeDomain || !activeQuestion) {
+      return `<div class="empty-state">${icon('shield')}<h3>暂无可评价研究</h3><button class="ghost-button" data-rob-view="overview">返回总览</button></div>`;
+    }
     const human = robJudgement(activeQuestion.key, 'human');
     const ai = robJudgement(activeQuestion.key, 'ai');
     const spans = Array.isArray(state.robEvidenceSpans) ? state.robEvidenceSpans : [];
@@ -392,18 +444,36 @@ export function createPages(ctx) {
       markAll: true,
       anchorId: 'rob-evidence-anchor',
     });
-    const questionCards = state.robDomains.map((domain) => `<section class="rob-domain-card"><header><span class="criterion-id">${domain.key}</span><div><strong>${escapeHtml(domain.title)}</strong></div></header>${domain.questions.map((question) => { const h = robJudgement(question.key, 'human'); const a = robJudgement(question.key, 'ai'); return `<button class="rob-question ${question.key === activeQuestion.key ? 'active' : ''}" data-action="select-rob-question" data-question="${question.key}"><span><b>${question.key}</b>${escapeHtml(question.text)}</span><span class="rob-question-status">${h ? `<em class="badge green">人工 ${escapeHtml(h.judgement)}</em>` : '<em class="badge gray">待判断</em>'}${a ? `<em class="badge purple">AI ${escapeHtml(a.judgement)}</em>` : ''}</span></button>`; }).join('')}</section>`).join('');
+    const questionCards = state.robDomains.map((domain) => `<section class="rob-domain-card"><header><span class="criterion-id">${domain.key}</span><div><strong>${escapeHtml(domain.title)}</strong></div></header>${domain.questions.map((question) => {
+      const h = robJudgement(question.key, 'human');
+      const a = robJudgement(question.key, 'ai');
+      const level = h?.judgement || a?.judgement || 'NI';
+      const badgeCls = level === 'Low risk' ? 'green' : level === 'High risk' ? 'red' : level === 'Some concerns' ? 'amber' : 'gray';
+      return `<button class="rob-question ${question.key === activeQuestion.key ? 'active' : ''}" data-action="select-rob-question" data-question="${question.key}"><span><b>${question.key}</b>${escapeHtml(question.text)}</span><span class="rob-question-status">${h ? `<em class="badge ${badgeCls}">人工 ${escapeHtml(h.judgement)}</em>` : '<em class="badge gray">待判断</em>'}${a ? `<em class="badge purple">AI ${escapeHtml(a.judgement)}</em>` : ''}</span></button>`;
+    }).join('')}</section>`).join('');
     const chips = spans.length
       ? spans.map((text, index) => `<li class="rob-evidence-chip"><p>${escapeHtml(text)}</p><button type="button" class="icon-button danger" data-action="rob-remove-evidence" data-index="${index}" title="删除">${icon('x')}</button></li>`).join('')
       : '<li class="muted rob-evidence-empty">尚未绑定原文。在左侧划选文字后点「加入评估」，或使用「AI 找原文」。</li>';
-    return `${header('Risk of bias', '偏倚风险评价', '划选多段原文绑定证据；AI 可单独找原文，或基于已绑定证据作答。', `<button class="primary-button" data-action="next-study">下一项研究 ${icon('arrow')}</button>`)}
-  <div class="rob-study-toolbar"><label><span>当前研究</span><select class="select" data-rob-citation>${state.robCitations.map((item) => `<option value="${item.id}" ${item.id === citation.id ? 'selected' : ''}>${escapeHtml(item.title)}</option>`).join('')}</select></label></div>
+    return `<div class="rob-study-toolbar"><button class="ghost-button" data-rob-view="overview">${icon('chevron')} 返回总览</button><label><span>当前研究</span><select class="select" data-rob-citation>${state.robCitations.map((item) => `<option value="${item.id}" ${item.id === citation.id ? 'selected' : ''}>${escapeHtml(robStudyLabel(item))} · ${escapeHtml(item.title)}</option>`).join('')}</select></label><button class="ghost-button" data-action="next-study">下一项研究 ${icon('arrow')}</button></div>
   <div class="rob-review-layout"><section class="rob-source-panel"><div class="panel-head"><div><h3>原文证据</h3><p class="muted" style="font-size:11px">${ranked.length ? `Embedding 标出 ${ranked.length} 处高相关片段（高亮）；用鼠标划选后加入评估` : '划选正文加入评估；配置 Embedding 后可自动定位相关句'}</p></div></div><article class="rob-source-document"><h2>${escapeHtml(citation.title)}</h2><div id="rob-source-selectable" class="rob-source-selectable">${sourceText.trim() ? bodyHtml : '<p class="muted">无可用原文</p>'}</div></article>
   <div id="rob-selection-menu" class="rob-selection-menu" hidden><button type="button" data-action="rob-add-selection">${icon('plus')} 加入评估</button></div></section>
   <aside class="rob-assessment-panel"><div class="rob-question-list" data-scroll-preserve>${questionCards}</div><section class="rob-editor"><div class="rob-editor-head"><div><span class="criterion-id">${activeQuestion.key}</span><h3>${escapeHtml(activeQuestion.text)}</h3></div></div>
   <div class="rob-evidence-box ${spans.length ? 'has-evidence' : ''}"><strong>已绑定原文（${spans.length}）</strong><ul class="rob-evidence-list">${chips}</ul></div>
   <div class="form-grid rob-form"><div class="field"><label for="rob-answer">信号问题回答</label><select id="rob-answer">${['Yes', 'Probably yes', 'Probably no', 'No', 'No information'].map((value) => `<option ${value === (human?.answer || 'No information') ? 'selected' : ''}>${value}</option>`).join('')}</select></div><div class="field"><label for="rob-judgement">领域判断</label><select id="rob-judgement">${['Low risk', 'Some concerns', 'High risk'].map((value) => `<option ${value === (human?.judgement || 'Some concerns') ? 'selected' : ''}>${value}</option>`).join('')}</select></div><div class="field full"><label for="rob-rationale">判断理由</label><textarea id="rob-rationale">${escapeHtml(human?.rationale || '')}</textarea></div></div>
   <div class="rob-editor-actions"><button class="ghost-button" data-action="run-rob-find" ${state.robBusy ? 'disabled' : ''}>${icon('spark')} AI 找原文</button><button class="ghost-button" data-action="run-rob-ai" ${state.robBusy ? 'disabled' : ''}>${icon('spark')} AI 评估</button><button class="primary-button" data-action="save-rob" ${spans.length ? '' : 'disabled'}>${icon('check')} 保存人工判断</button></div></section></aside></div>`;
+  }
+
+  function rob() {
+    const eligible = includedAfterFulltext();
+    if (!eligible.length && !(state.robCitations || []).length) {
+      return `${header('Risk of bias', '偏倚风险评估', '仅评估全文筛选已纳入的研究。')}<div class="empty-state"><p>尚无全文纳入的研究。请先完成冲突裁决与全文筛选。</p></div>`;
+    }
+    const view = state.robView === 'detail' ? 'detail' : 'overview';
+    const jobBusy = Boolean(state.robAllProgress && state.robAllProgress.total) || state.robBusy;
+    const studyCount = (state.robCitations || []).length || eligible.length;
+    return `${header('Risk of bias', '偏倚风险与质量评价', 'RoB 2 总览矩阵 + 逐题原文回看；可一键 AI 评价全部纳入研究。', `<button class="primary-button" data-action="run-rob-all" ${state.credentialId && studyCount && !jobBusy ? '' : 'disabled'}>${icon('spark')} 一键评价全部</button>`)}
+  <div class="module-switch"><button class="${view === 'overview' ? 'active' : ''}" data-rob-view="overview">${icon('table')} 评价结果总览</button><button class="${view === 'detail' ? 'active' : ''}" data-rob-view="detail">${icon('shield')} 逐题回看</button></div>
+  ${view === 'overview' ? robOverview() : robDetail()}`;
   }
 
   function adjudication() {
@@ -420,10 +490,12 @@ export function createPages(ctx) {
     const rightAvatar = isDual ? 'B' : 'AI';
     const rightTone = isDual ? 'blue' : 'purple';
     const badge = isDual ? '双人 Diff' : '人机冲突';
-    return `${header('Adjudication center', '冲突裁决中心', '并排查看双方判断；终裁写入审计，并解除纳入阻塞。', `<button class="ghost-button" data-action="skip">下一条</button><button class="primary-button" data-action="next-conflict">下一个冲突</button>`)}<section class="panel"><div class="panel-head"><div><h3>Conflict · Title/abstract · ${badge}</h3><p>${escapeHtml(citation.title)}</p></div><span class="badge red">${conflicts.length} 待处理</span></div><div class="panel-body"><div class="compare-grid">
+    const lock = citationWorkflowLock(citation);
+    const resolveDisabled = Boolean(state.adjudicationResolution) || lock.locksTitleAbstract;
+    return `${header('Adjudication center', '冲突裁决中心', '并排查看双方判断；终裁写入审计，并解除纳入阻塞。', `<button class="ghost-button" data-action="skip">下一条</button><button class="primary-button" data-action="next-conflict">下一个冲突</button>`)}${workflowLockBanner(citation, 'title_abstract')}<section class="panel"><div class="panel-head"><div><h3>Conflict · Title/abstract · ${badge}</h3><p>${escapeHtml(citation.title)}</p></div><span class="badge red">${conflicts.length} 待处理</span></div><div class="panel-body"><div class="compare-grid">
     ${reviewer((state.user?.name || 'A').slice(0, 2), leftLabel, left.decision, left.rationale || '', left.evidence || '', 'green')}
     ${reviewer(rightAvatar, rightLabel, right.decision, right.rationale || '', right.evidence || '', rightTone)}
-  </div><div class="resolve-box"><div><strong>最终裁决</strong></div><div class="decision-group"><button class="decision-button include ${state.adjudicationResolution === 'Include' ? 'selected' : ''}" data-resolution="Include" ${state.adjudicationResolution ? 'disabled' : ''}>纳入</button><button class="decision-button exclude ${state.adjudicationResolution === 'Exclude' ? 'selected' : ''}" data-resolution="Exclude" ${state.adjudicationResolution ? 'disabled' : ''}>排除</button><button class="decision-button uncertain ${state.adjudicationResolution === 'Uncertain' ? 'selected' : ''}" data-resolution="Uncertain" ${state.adjudicationResolution ? 'disabled' : ''}>待定</button></div></div></div></section>`;
+  </div><div class="resolve-box"><div><strong>最终裁决</strong></div><div class="decision-group"><button class="decision-button include ${state.adjudicationResolution === 'Include' ? 'selected' : ''}" data-resolution="Include" ${resolveDisabled ? 'disabled' : ''}>纳入</button><button class="decision-button exclude ${state.adjudicationResolution === 'Exclude' ? 'selected' : ''}" data-resolution="Exclude" ${resolveDisabled ? 'disabled' : ''}>排除</button><button class="decision-button uncertain ${state.adjudicationResolution === 'Uncertain' ? 'selected' : ''}" data-resolution="Uncertain" ${resolveDisabled ? 'disabled' : ''}>待定</button></div></div></div></section>`;
   }
 
   function synthesis() {

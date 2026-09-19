@@ -5,6 +5,7 @@ export function buildAssistantPanel({
   titleMap,
   currentScreenCase,
   includedForFulltext,
+  currentFulltextCitation,
   screeningConflicts,
   robJudgement,
   recomputeDerivedCounts,
@@ -21,7 +22,10 @@ export function buildAssistantPanel({
 
   function focusCitation() {
     if (state.active === 'screening') return currentScreenCase();
-    if (state.active === 'fulltext') return includedForFulltext()[state.fulltextIndex || 0] || includedForFulltext()[0] || null;
+    if (state.active === 'fulltext') {
+      if (typeof currentFulltextCitation === 'function') return currentFulltextCitation();
+      return includedForFulltext()[state.fulltextIndex || 0] || includedForFulltext()[0] || null;
+    }
     if (state.active === 'adjudication') return screeningConflicts()[state.adjudicationIndex || 0]?.citation || null;
     if (state.active === 'rob') return state.robCitations.find((item) => item.id === state.robCitationId) || state.robCitations[0] || null;
     if (state.active === 'extraction') {
@@ -136,8 +140,9 @@ export function buildAssistantPanel({
       push('assistant-extract-row', '对本行预填全部字段', needCred || !focus?.id);
       push('assistant-extract-cell', '对当前单元格预填', needCred || !(state.extractionFocus?.citationId || state.modalPayload?.citationId) || !(state.extractionFocus?.fieldId || state.modalPayload?.fieldId));
     } else if (state.active === 'rob') {
-      push('assistant-run-rob-find', 'AI 找原文（可校验）', needCred || !state.robCitationId);
-      push('assistant-run-rob-ai', '对当前 signaling question 跑 AI 评估', needCred || !state.robCitationId);
+      push('run-rob-all', '一键评价全部纳入研究', needCred || !(state.robCitations || []).length || Boolean(state.robAllProgress));
+      push('assistant-run-rob-find', 'AI 找原文（可校验）', needCred || !state.robCitationId || state.robView !== 'detail');
+      push('assistant-run-rob-ai', '对当前 signaling question 跑 AI 评估', needCred || !state.robCitationId || state.robView !== 'detail');
     }
     else if (state.active === 'adjudication') {
       const conflict = screeningConflicts()[state.adjudicationIndex || 0];
@@ -218,7 +223,10 @@ export function buildAssistantPanel({
 export function assistantFocusId(state, helpers) {
   const focus = (() => {
     if (state.active === 'screening') return helpers.currentScreenCase();
-    if (state.active === 'fulltext') return helpers.includedForFulltext()[state.fulltextIndex || 0] || helpers.includedForFulltext()[0];
+    if (state.active === 'fulltext') {
+      if (typeof helpers.currentFulltextCitation === 'function') return helpers.currentFulltextCitation();
+      return helpers.includedForFulltext()[state.fulltextIndex || 0] || helpers.includedForFulltext()[0];
+    }
     if (state.active === 'adjudication') return helpers.screeningConflicts()[state.adjudicationIndex || 0]?.citation;
     if (state.active === 'rob') return state.robCitations.find((item) => item.id === state.robCitationId) || state.robCitations[0];
     if (state.active === 'extraction') {

@@ -170,6 +170,11 @@ export const CitationApi = {
     api(`/api/projects/${projectId}/citations/${citationId}/fulltext?${new URLSearchParams({ scope })}`, {
       method: 'DELETE',
     }),
+  rollback: (projectId, citationId, to) =>
+    api(`/api/projects/${projectId}/citations/${citationId}/rollback`, {
+      method: 'POST',
+      body: { to },
+    }),
   deletePreview: async (projectId, citationIds) => {
     const ids = [...new Set((citationIds || []).map(String).filter(Boolean))];
     const chunkSize = 2000;

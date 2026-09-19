@@ -10,6 +10,10 @@ import {
   type ChatMessage,
 } from '../services/llm.js';
 import { assertCanWrite, requireProjectMember, writeAudit } from '../services/rbac.js';
+import {
+  assertEffectivelyIncluded,
+  isEffectivelyIncluded,
+} from '../services/citation-lifecycle.js';
 
 export const ROB_PROMPT_VERSION = 'rob-2.0';
 export const ROB_FIND_PROMPT_VERSION = 'rob-find-1.0';
@@ -300,20 +304,8 @@ export async function riskOfBiasRoutes(app: FastifyInstance) {
       const { projectId } = request.params as { projectId: string };
       await requireProjectMember(projectId, request.user!.id);
       const query = request.query as { citationId?: string };
-      const citations = await prisma.citation.findMany({
-        where: {
-          projectId,
-          decisions: {
-            some: {
-              actor: 'final',
-              decision: 'Include',
-              OR: [
-                { rationale: { contains: '[fulltext]' } },
-                { rationale: { startsWith: 'Full-text eligibility' } },
-              ],
-            },
-          },
-        },
+      const citationsRaw = await prisma.citation.findMany({
+        where: { projectId },
         select: {
           id: true,
           title: true,
@@ -324,21 +316,43 @@ export async function riskOfBiasRoutes(app: FastifyInstance) {
           journal: true,
           fullTextStatus: true,
           pdfFileId: true,
+          decisions: {
+            select: { id: true, actor: true, decision: true, rationale: true, createdAt: true },
+          },
         },
         orderBy: { createdAt: 'asc' },
         take: 5000,
       });
+      const citations = citationsRaw
+        .filter((citation) => isEffectivelyIncluded(citation.decisions))
+        .map(({ decisions: _decisions, ...rest }) => rest);
       const citationId = citations.some((citation) => citation.id === query.citationId)
         ? query.citationId
         : citations[0]?.id;
       const judgements = citationId
         ? await prisma.riskOfBiasJudgement.findMany({ where: { projectId, citationId }, orderBy: { updatedAt: 'desc' } })
         : [];
+      const summaryJudgements = await prisma.riskOfBiasJudgement.findMany({
+        where: { projectId },
+        select: {
+          id: true,
+          citationId: true,
+          domainKey: true,
+          questionKey: true,
+          actor: true,
+          answer: true,
+          judgement: true,
+          updatedAt: true,
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 50_000,
+      });
       return {
         domains: ROB_DOMAINS,
         citations,
         citationId: citationId || null,
         judgements: judgements.map(serializeJudgement),
+        summaryJudgements,
       };
     } catch (err) {
       return sendError(reply, err);
@@ -354,6 +368,7 @@ export async function riskOfBiasRoutes(app: FastifyInstance) {
       const { domain, question } = findRobQuestion(body.domainKey, body.questionKey);
       const citation = await prisma.citation.findFirst({ where: { id: citationId, projectId } });
       if (!citation) throw new AppError(404, 'not_found', 'Citation not found');
+      await assertEffectivelyIncluded(projectId, citationId);
       const sourceText = citationAiSource(citation);
       const { accepted, rejected } = validateEvidenceSpans(sourceText, collectInputQuotes(body), 'human');
       if (!accepted.length) {
@@ -512,6 +527,7 @@ export async function riskOfBiasRoutes(app: FastifyInstance) {
         prisma.project.findUnique({ where: { id: projectId } }),
       ]);
       if (!citation) throw new AppError(404, 'not_found', 'Citation not found');
+      await assertEffectivelyIncluded(projectId, citationId);
       const credentialId = body.credentialId || project?.credentialId;
       if (!credentialId) throw new AppError(400, 'missing_credential', 'Configure a model credential first');
       const fullSource = citationAiSource(citation);

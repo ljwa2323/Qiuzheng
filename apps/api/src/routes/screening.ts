@@ -22,6 +22,12 @@ import {
   ADJUDICATION_PROMPT_VERSION,
   CRITERION_LOCATE_PROMPT_VERSION,
 } from '../services/llm.js';
+import {
+  assertCanMutateFulltextDecision,
+  assertCanMutateTitleAbstract,
+  isFulltextTaggedDecision,
+  latestTitleAbstractAi,
+} from '../services/citation-lifecycle.js';
 
 function screenQueue() {
   return createQueue(QUEUE_SCREEN);
@@ -210,6 +216,16 @@ export async function screeningRoutes(app: FastifyInstance) {
         }
         matched += 1;
 
+        try {
+          await assertCanMutateTitleAbstract(projectId, citation.id);
+        } catch (err) {
+          if (err instanceof AppError && err.code === 'upstream_locked') {
+            unmatched.push({ citationId: citation.id, doi: row.doi, title: citation.title });
+            continue;
+          }
+          throw err;
+        }
+
         const rationale = row.rationale?.trim()
           ? row.rationale
           : `[imported human_b] from ${reviewerLabel}`;
@@ -270,6 +286,7 @@ export async function screeningRoutes(app: FastifyInstance) {
         const body = decisionSchema.parse(request.body);
         const citation = await prisma.citation.findFirst({ where: { id: citationId, projectId } });
         if (!citation) throw new AppError(404, 'not_found', 'Citation not found');
+        await assertCanMutateTitleAbstract(projectId, citationId);
 
         const record = await prisma.screeningDecision.create({
           data: {
@@ -314,6 +331,13 @@ export async function screeningRoutes(app: FastifyInstance) {
         const citation = await prisma.citation.findFirst({ where: { id: citationId, projectId } });
         if (!citation) throw new AppError(404, 'not_found', 'Citation not found');
 
+        const isFulltext = isFulltextTaggedDecision(body);
+        if (isFulltext) {
+          await assertCanMutateFulltextDecision(projectId, citationId, body.decision);
+        } else {
+          await assertCanMutateTitleAbstract(projectId, citationId);
+        }
+
         const record = await prisma.screeningDecision.create({
           data: {
             projectId,
@@ -333,9 +357,9 @@ export async function screeningRoutes(app: FastifyInstance) {
           projectId,
           userId: request.user!.id,
           actorName: request.user!.name,
-          action: 'Submitted final screening decision',
+          action: isFulltext ? 'Submitted full-text final decision' : 'Submitted final screening decision',
           detail: `${body.decision} for ${citation.title}`,
-          module: 'Adjudication',
+          module: isFulltext ? 'Full text' : 'Adjudication',
         });
 
         return { decision: record };
@@ -364,6 +388,7 @@ export async function screeningRoutes(app: FastifyInstance) {
         const project = await prisma.project.findUnique({ where: { id: projectId } });
         const credentialId = body.credentialId || project?.credentialId;
         if (!credentialId) throw new AppError(400, 'missing_credential', 'Configure a model credential first');
+        await assertCanMutateTitleAbstract(projectId, citationId);
 
         if (body.async) {
           const job = await prisma.job.create({
@@ -770,8 +795,12 @@ export async function screeningRoutes(app: FastifyInstance) {
           prisma.protocolVersion.findFirst({ where: { projectId }, orderBy: { version: 'desc' } }),
         ]);
         if (!citation) throw new AppError(404, 'not_found', 'Citation not found');
+        await assertCanMutateTitleAbstract(projectId, citationId);
         const human = citation.decisions.find((d) => d.actor === 'human');
-        const ai = citation.decisions.find((d) => d.actor === 'ai');
+        const aiLike = latestTitleAbstractAi(citation.decisions);
+        const ai = aiLike
+          ? citation.decisions.find((d) => d.id === aiLike.id) || null
+          : null;
         if (!human || !ai) throw new AppError(400, 'missing_decisions', 'Need both human and AI decisions');
         if (human.decision === ai.decision) {
           throw new AppError(400, 'no_conflict', 'Human and AI already agree');

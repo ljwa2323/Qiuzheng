@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { AppError, sendError } from '../lib/errors.js';
 import { assertCanWrite, requireProjectMember, writeAudit } from '../services/rbac.js';
+import { listEffectivelyIncludedCitationIds } from '../services/citation-lifecycle.js';
 import { runMetaInSandbox } from '../services/meta-sandbox.js';
 import { META_RECIPES, type MetaMeasure, type MetaModel } from '../services/meta-stats.js';
 import {
@@ -234,8 +235,9 @@ export async function metaRoutes(app: FastifyInstance) {
         byCitation.get(v.citationId)!.set(field.key, v.value);
       }
 
+      const eligibleIds = new Set(await listEffectivelyIncludedCitationIds(projectId));
       const citations = await prisma.citation.findMany({
-        where: { projectId },
+        where: { projectId, id: { in: [...eligibleIds] } },
         select: { id: true, title: true },
       });
 

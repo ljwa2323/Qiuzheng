@@ -15,6 +15,7 @@ import {
   prepareGroundedSource,
   EXTRACTION_PROMPT_VERSION,
 } from '../services/llm.js';
+import { assertEffectivelyIncluded } from '../services/citation-lifecycle.js';
 
 const fieldSchema = z.object({
   key: z.string().trim().min(1).max(64).regex(/^[a-z][a-z0-9_]*$/),
@@ -50,6 +51,7 @@ export async function runExtractionAi(input: {
     }),
   ]);
   if (!citation) throw new AppError(404, 'not_found', 'Citation not found');
+  await assertEffectivelyIncluded(projectId, citationId);
   const fields = fieldIds?.length ? allFields.filter((f) => fieldIds.includes(f.id)) : allFields;
   if (!fields.length) throw new AppError(400, 'no_fields', 'No extraction fields configured');
 
@@ -373,6 +375,7 @@ export async function extractionRoutes(app: FastifyInstance) {
         prisma.extractionField.findFirst({ where: { id: fieldId, projectId, active: true } }),
       ]);
       if (!citation || !field) throw new AppError(404, 'not_found', 'Citation or extraction field not found');
+      await assertEffectivelyIncluded(projectId, citationId);
       const value = await prisma.extractionValue.upsert({
         where: { citationId_fieldId: { citationId, fieldId } },
         create: { ...body, projectId, citationId, fieldId, createdBy: request.user!.id },
